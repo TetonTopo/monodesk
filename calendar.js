@@ -19,6 +19,10 @@ async function pageReadDay() {
   // Whose calendar this is: the Google account button reads "Google Account: Name (you@example.com)".
   const account = ([...document.querySelectorAll('[aria-label*="@"]')].map((e) => e.getAttribute('aria-label')).find((l) => /google account/i.test(l)) || '')
     .match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0]?.toLowerCase() || null;
+  // The time zone Google shows times in: its own setting, which can differ from the computer's (travelling, say).
+  // The day view prints it over the hours, "GMT-07". With a second time zone there are two; the one next to the grid (the last) is the main one.
+  const zone = [...document.querySelectorAll('div, span')].filter((e) => !e.children.length)
+    .map((e) => e.textContent.trim()).filter((t) => /^(GMT|UTC)([+\-−]\d{1,2}(:?\d{2})?)?$/.test(t)).pop() || null;
   // An event id is base64 of "<event> <calendar>", so each event says which calendar it's on.
   const calOf = (id) => { try { return atob(id.replace(/-/g, '+').replace(/_/g, '/')).split(' ')[1]?.toLowerCase() || null; } catch { return null; } };
   const seen = new Set(), out = [];
@@ -30,7 +34,14 @@ async function pageReadDay() {
     const label = texts.find((t) => /,/.test(t) && /\b(to|all day)\b/i.test(t)) || el.getAttribute('aria-label') || '';
     out.push({ id, cal: calOf(id), label, lines: el.innerText.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3) });
   }
-  return { account, events: out };
+  return { account, zone, events: out };
+}
+
+// "GMT-07" → -420, "GMT+05:30" → 330, "GMT" → 0; null if there's no label (then times are taken as the computer's own).
+function zoneOffset(label) {
+  const m = /^(?:GMT|UTC)(?:([+\-−])(\d{1,2}):?(\d{2})?)?$/.exec(label || '');
+  if (!m) return null;
+  return m[1] ? (m[1] === '+' ? 1 : -1) * (+m[2] * 60 + (+m[3] || 0)) : 0;
 }
 
 // Only the signed-in person's own calendar (not coworkers', shared or holiday calendars).
@@ -50,10 +61,13 @@ function minutes(h, m, ampm) {
 }
 
 // One screen-reader line → { title, start, end, allDay } for that day, or null for declined or unreadable events.
-function parse(raw, day) {
+// offset: minutes from UTC of the time zone Google showed the times in (see zoneOffset).
+function parse(raw, day, offset = null) {
   const label = raw.label.replace(/\s+/g, ' ').trim();
   if (!label || /,\s*Declined\b/i.test(label)) return null;
-  const at = (min) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, min).getTime();
+  const at = (min) => (offset == null
+    ? new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, min).getTime()
+    : Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), 0, min) - offset * 60e3);
   const allDay = /^all day\b/i.exec(label);
   const time = /^(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?\s*(?:to|–|-)\s*(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?/i.exec(label);
   if (!allDay && !time) return null;
@@ -75,7 +89,8 @@ async function readDay(day) {
     const r = await w.webContents.executeJavaScript(`(${pageReadDay})()`, true);
     if (r.error) return r;
     // Discrete meetings only: no all-day events.
-    return { events: ownOnly(r.events, r.account).map((e) => parse(e, day)).filter((e) => e && !e.allDay) };
+    const offset = zoneOffset(r.zone);
+    return { events: ownOnly(r.events, r.account).map((e) => parse(e, day, offset)).filter((e) => e && !e.allDay) };
   } finally {
     w.destroy();
   }
@@ -98,4 +113,4 @@ async function events(force) {
   return loading;
 }
 
-module.exports = { events, parse };
+module.exports = { events, parse, zoneOffset };

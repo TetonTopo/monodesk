@@ -209,8 +209,8 @@ function topbar() {
       const code = isCodeUrl(activeTab('claude')?.url);
       const c = (which) => (code === (which === 'code') ? cls : '');
       const ready = (which) => { const r = S.tabs.claude.filter((t) => t.ready && sideOf(t) === which).length; return r ? `<span class="dot">${r}</span>` : ''; };
-      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Ctrl ${SLOTS.indexOf('cowork') + 1} · Alt 1–9 for recent chats)">${I('claude')}${ready('cowork')}</button>`
-        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Ctrl ${SLOTS.indexOf('code') + 1} · Alt 1–9 for recent sessions)">${I('term')}${ready('code')}</button>`;
+      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Ctrl ${SLOTS.indexOf('cowork') + 1} · Alt 1–9 for recent chats, Alt 0 for a new one)">${I('claude')}${ready('cowork')}</button>`
+        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Ctrl ${SLOTS.indexOf('code') + 1} · Alt 1–9 for recent sessions, Alt 0 for a new one)">${I('term')}${ready('code')}</button>`;
     }
     return `<button class="abtn ${cls}" data-act="go" data-mod="${m}" title="${APPS[m].name}  (Ctrl ${SLOTS.indexOf(m) + 1})">${I(m)}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}</button>`;
   }).join('') + (TODO_DB ? `<button class="abtn" data-act="add-todo" title="New ${esc(TODO_GROUP)} to-do">${I('plus')}</button>` : '');
@@ -1041,8 +1041,8 @@ function shortcut(key) {
   else if (key.startsWith('alt')) claudeAlt(key);
 }
 
-/* Claude: hold Alt to number your recent chats (or Code sessions), Alt 1–9 to jump to one. */
-// Runs inside claude.ai: 'show' numbers the recent chats in the sidebar, 'hide' clears them, 'go' opens number n.
+/* Claude: hold Alt to number your recent chats (or Code sessions), Alt 1–9 to jump to one, Alt 0 for a new one. */
+// Runs inside claude.ai: 'show' numbers the recent chats in the sidebar, 'hide' clears them, 'go' opens number n (0 = new).
 function claudeThreads(action, n) {
   document.querySelectorAll('.md-hint').forEach((e) => e.remove());
   if (action === 'hide') return true;
@@ -1055,12 +1055,17 @@ function claudeThreads(action, n) {
     seen.add(h);
     return true;
   }).slice(0, 9);
+  // 0 is a new chat (in Claude Code, a new session): claude.ai's own New link, or the page itself if the sidebar is shut.
+  const fresh = location.pathname.startsWith('/code') ? '/code' : '/new';
+  const newLink = [...document.querySelectorAll('a[href]')].find((a) => a.getAttribute('href').replace(/^https:\/\/claude\.ai/, '') === fresh && a.getBoundingClientRect().width);
+  if (action === 'go' && n === 0) { if (newLink) newLink.click(); else location.href = fresh; return true; }
   if (action === 'go') { const a = links[n - 1]; if (a) a.click(); return !!a; }
+  if (newLink) links.unshift(newLink);
   links.forEach((a, i) => {
     const r = a.getBoundingClientRect();
     const b = document.createElement('div');
     b.className = 'md-hint';
-    b.textContent = i + 1;
+    b.textContent = newLink ? i : i + 1;
     Object.assign(b.style, { position: 'fixed', left: Math.max(2, r.left + 4) + 'px', top: r.top + r.height / 2 - 9 + 'px', zIndex: 2147483647, minWidth: '18px', height: '18px', padding: '0 5px', borderRadius: '9px', background: '#ecebe8', color: '#121212', font: '600 11px/18px system-ui, sans-serif', textAlign: 'center', pointerEvents: 'none', boxShadow: '0 1px 4px rgba(0,0,0,.45)' });
     document.body.appendChild(b);
   });
@@ -1093,8 +1098,8 @@ window.md?.onToast(toast);
 window.md?.onCssChanged(() => { $('#shell-css').href = 'style.css?v=' + Date.now(); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') return closeLayer();
-  // Alt 1–9 while Claude is showing but the shell has the keyboard.
-  if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-9]$/.test(e.key) && S.panes[S.focus] === 'claude') { e.preventDefault(); shortcut('alt+' + e.key); return; }
+  // Alt 0–9 while Claude is showing but the shell has the keyboard.
+  if (e.altKey && !e.ctrlKey && !e.metaKey && /^[0-9]$/.test(e.key) && S.panes[S.focus] === 'claude') { e.preventDefault(); shortcut('alt+' + e.key); return; }
   if (!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
   if (e.shiftKey && k === 'e') { e.preventDefault(); shortcut('shift+e'); }

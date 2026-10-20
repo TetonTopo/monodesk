@@ -38,7 +38,7 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 | --- | --- |
 | Search and commands | Ctrl K |
 | Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Calendar | Ctrl 1–7 |
-| In Claude: number recent chats / jump to one | Hold Alt / Alt 1–9 |
+| In Claude: number recent chats / jump to one / start a new one | Hold Alt / Alt 1–9 / Alt 0 |
 | New tab / close tab | Ctrl T / Ctrl W |
 | Split view (two apps side by side) | Ctrl \ |
 | Copy the open WhatsApp chat as text | Ctrl Shift E |

@@ -155,14 +155,14 @@ app.on('web-contents-created', (_event, contents) => {
 
   // Keystrokes inside an app never reach the shell, so forward Monodesk's shortcuts from here.
   contents.on('before-input-event', (event, input) => {
-    // Claude: hold Alt to number recent chats, Alt 1–9 to open one. AltGr (Ctrl+Alt) is left alone for typing.
+    // Claude: hold Alt to number recent chats, Alt 1–9 to open one, Alt 0 for a new one. AltGr (Ctrl+Alt) is left alone for typing.
     if (appOf(contents) === 'claude' && !input.control && !input.meta) {
       const tag = '@' + contents.id;
       if (input.key === 'Alt') {
         win?.webContents.send('shortcut', (input.type === 'keyDown' ? (input.isAutoRepeat ? '' : 'alt-hold') : 'alt-up') + tag);
         return;
       }
-      if (input.type === 'keyDown' && input.alt && !input.shift && /^[1-9]$/.test(input.key)) {
+      if (input.type === 'keyDown' && input.alt && !input.shift && /^[0-9]$/.test(input.key)) {
         event.preventDefault();
         win?.webContents.send('shortcut', 'alt+' + input.key + tag);
         return;
