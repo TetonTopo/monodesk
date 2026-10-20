@@ -120,7 +120,9 @@ body.darwin .top{padding:0 10px 0 82px}
 .item .t3{font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .badge{min-width:18px; height:18px; border-radius:9px; background:var(--ink); color:var(--ink-fg); font-size:11px; font-weight:600; display:inline-grid; place-items:center; padding:0 5px; flex:none}
 .blank{height:100%; display:grid; place-items:center; color:var(--faint); font-size:12.5px; padding:16px; text-align:center}
-.item.pinned{background:var(--sunk)}
+/* WhatsApp: unread chats sit on grey, read ones (pinned or not) on the plain background. */
+.item.new{background:var(--sunk)}
+.item.new:hover{background:var(--line-2)}
 .item.pinned .t1 svg.i{width:14px; height:14px; color:var(--muted); align-self:center}
 .item .reply{flex:none; align-self:center; font-size:11.5px; font-weight:500; color:var(--faint); border:1px solid var(--line-2); border-radius:6px; padding:1px 8px; margin-left:2px}
 .item:hover .reply{color:var(--muted)}

@@ -560,7 +560,7 @@ async function refreshWA() {
   const list = r.unread;
   const total = list.length + pinned.filter((p) => r.pins[p]?.n).length;
   $('#wa-sub').textContent = total ? `${total} unread` : '';
-  const row = (c, pin) => `<button class="item${pin ? ' pinned' : ''}" data-act="wa-open" data-name="${esc(c.name)}"><div class="t1">${pin ? I('pin') : ''}<b>${esc(c.name)}</b>${c.n ? `<span class="badge">${c.n}</span>` : ''}${c.n ? `<span class="reply" data-act="wa-read" data-name="${esc(c.name)}" title="Mark as read">Read</span>` : ''}<span class="reply" data-act="wa-reply" data-name="${esc(c.name)}" title="Reply without leaving Home">Reply</span></div><div class="t3">${esc(c.preview)}</div></button>`;
+  const row = (c, pin) => `<button class="item${pin ? ' pinned' : ''}${c.n ? ' new' : ''}" data-act="wa-open" data-name="${esc(c.name)}"><div class="t1">${pin ? I('pin') : ''}<b>${esc(c.name)}</b>${c.n ? `<span class="badge">${c.n}</span>` : ''}${c.n ? `<span class="reply" data-act="wa-read" data-name="${esc(c.name)}" title="Mark as read">Read</span>` : ''}<span class="reply" data-act="wa-reply" data-name="${esc(c.name)}" title="Reply without leaving Home">Reply</span></div><div class="t3">${esc(c.preview)}</div></button>`;
   // Unread chats first, then the pinned chats, which always stay. A pinned chat that has scrolled out of WhatsApp's sidebar still shows, just without its latest message.
   const pins = pinned.map((p) => row(r.pins[p] || { name: p, preview: 'Not in the recent chats list right now', n: 0 }, true)).join('');
   box.innerHTML = list.map((c) => row(c)).join('') + pins || blank('Nothing unread. Open a chat in WhatsApp and press the pin to keep it here.');
