@@ -51,9 +51,10 @@ async function fromZip(repo, dir) {
     if (!r.ok) throw new Error(`Download failed (${r.status})`);
     const zip = path.join(tmp, 'update.zip');
     fs.writeFileSync(zip, Buffer.from(await r.arrayBuffer()));
-    // tar reads zips on Windows 10+ and macOS; Linux uses unzip.
+    // Windows 10+ and macOS have a tar that reads zips; Linux uses unzip.
+    // On Windows, name System32's tar: Git's GNU tar can come first on PATH and can't read zips.
     if (process.platform === 'linux') await sh('unzip', ['-q', zip, '-d', tmp], tmp);
-    else await sh('tar', ['-xf', zip, '-C', tmp], tmp);
+    else await sh(process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar', ['-xf', zip, '-C', tmp], tmp);
     const top = fs.readdirSync(tmp).find((n) => n !== 'update.zip' && fs.statSync(path.join(tmp, n)).isDirectory());
     if (!top) throw new Error('The download was empty');
     const src = path.join(tmp, top);
