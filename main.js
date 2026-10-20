@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, nativeTheme, session } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, clipboard, shell, nativeTheme, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
@@ -75,7 +75,53 @@ function linkApp(url) {
   return Object.keys(OWN_HOSTS).find((m) => OWN_HOSTS[m].test(u.hostname)) || null;
 }
 
+// Right-click: Cut / Copy / Paste, links, images and spelling, which Electron leaves out. Apps with their own
+// right-click menu (WhatsApp's chat list, Gmail's inbox) keep theirs, since then this event never fires.
+function contextMenu(contents) {
+  contents.on('context-menu', async (_event, p) => {
+    const items = [];
+    const sep = () => { if (items.length && items.at(-1).type !== 'separator') items.push({ type: 'separator' }); };
+    if (p.misspelledWord) {
+      for (const s of p.dictionarySuggestions.slice(0, 5)) items.push({ label: s, click: () => contents.replaceMisspelling(s) });
+      items.push({ label: 'Add to dictionary', click: () => contents.session.addWordToSpellCheckerDictionary(p.misspelledWord) });
+      sep();
+    }
+    if (/^https?:|^mailto:/i.test(p.linkURL)) {
+      items.push({ label: 'Open link in browser', click: () => shell.openExternal(p.linkURL) }, { label: 'Copy link address', click: () => clipboard.writeText(p.linkURL) });
+      sep();
+    }
+    if (p.mediaType === 'image' && p.hasImageContents) {
+      items.push({ label: 'Copy image', click: () => contents.copyImageAt(p.x, p.y) });
+      if (/^https?:/i.test(p.srcURL)) items.push({ label: 'Copy image address', click: () => clipboard.writeText(p.srcURL) });
+      sep();
+    }
+    const f = p.editFlags;
+    if (p.isEditable) {
+      items.push(
+        { label: 'Undo', enabled: f.canUndo, click: () => contents.undo() },
+        { label: 'Redo', enabled: f.canRedo, click: () => contents.redo() },
+        { type: 'separator' },
+        { label: 'Cut', enabled: f.canCut, click: () => contents.cut() },
+        { label: 'Copy', enabled: f.canCopy, click: () => contents.copy() },
+        { label: 'Paste', enabled: f.canPaste, click: () => contents.paste() },
+        { label: 'Paste as plain text', enabled: f.canPaste, click: () => contents.pasteAndMatchStyle() },
+        { type: 'separator' },
+        { label: 'Select all', enabled: f.canSelectAll, click: () => contents.selectAll() },
+      );
+    } else if (p.selectionText.trim()) {
+      items.push({ label: 'Copy', click: () => contents.copy() });
+    } else if (contents === win?.webContents) {
+      // Home's rows are buttons, whose text can't be selected, so they offer their text instead.
+      const text = await contents.executeJavaScript(`window.rowText ? window.rowText(${p.x}, ${p.y}) : ''`).catch(() => '');
+      if (text) items.push({ label: 'Copy text', click: () => clipboard.writeText(text) });
+    }
+    while (items.at(-1)?.type === 'separator') items.pop();
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: BrowserWindow.fromWebContents(contents) || win });
+  });
+}
+
 app.on('web-contents-created', (_event, contents) => {
+  contextMenu(contents);
   if (contents.getType() !== 'webview') return;
 
   contents.setWindowOpenHandler(({ url }) => {

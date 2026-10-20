@@ -982,6 +982,12 @@ function toast(msg) {
 }
 function closeLayer() { $('#layer .ov')?.remove(); }
 
+// Right-click on a Home row (a chat, an email): its words, for the "Copy text" menu item main.js shows.
+window.rowText = (x, y) => {
+  const item = document.elementFromPoint(x, y)?.closest('.item');
+  return item ? [...item.querySelectorAll('b, .t2, .t3')].map((e) => e.textContent.trim()).filter(Boolean).join('\n') : '';
+};
+
 /* ---------- events ---------- */
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
