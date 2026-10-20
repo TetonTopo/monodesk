@@ -12,6 +12,7 @@ const ORIGIN = 'https://claude.ai';
 // Dispatch's files (github.com/TetonTopo/dispatch): the MONODESK_DISPATCH folder if set, else a dispatch checkout next to Monodesk.
 const PHONE_DIR = path.resolve(process.env.MONODESK_DISPATCH || path.join(__dirname, '..', 'dispatch'));
 const TOP = 3;
+const NEW_MODEL = 'Opus 5.5'; // New chats and Code sessions from the phone always start on this model.
 const KEEP_MESSAGES = 40;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 
@@ -99,32 +100,61 @@ async function pageListEnvironments() {
 
 const pageBusy = `!!document.querySelector('[data-is-streaming="true"], button[aria-label*="stop" i], button[aria-label*="interrupt" i]')`;
 
-// Types the text into the composer and presses send. Works for ProseMirror boxes and plain textareas.
+// Types the text into the composer, presses its send button, and only says ok once the box has emptied
+// (claude.ai clears it when it takes the message). Co-work: chat-input / chat-input-send. Code: code-prompt-input / code-prompt-send.
+// Match these exactly: the page also has "Send feedback" and a type=submit "Scroll to bottom" button.
 async function pageSend(text) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const read = (el) => (el.tagName === 'TEXTAREA' ? el.value : el.innerText).trim();
   let box;
   for (let i = 0; i < 60 && !box; i++) {
-    box = document.querySelector('[contenteditable="true"].ProseMirror, div[contenteditable="true"], textarea');
+    box = document.querySelector('[data-testid="chat-input"], [data-testid="code-prompt-input"]');
     if (!box) await sleep(250);
   }
-  if (!box) return { error: 'Couldn’t find the message box.' };
+  if (!box) return { error: 'Couldn’t find Claude’s message box.' };
   box.focus();
   if (box.tagName === 'TEXTAREA') {
-    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-    set.call(box, text);
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box, text);
     box.dispatchEvent(new Event('input', { bubbles: true }));
   } else {
     document.execCommand('selectAll', false);
     document.execCommand('insertText', false, text);
   }
   await sleep(350);
-  for (let i = 0; i < 24; i++) {
-    const btn = document.querySelector('button[aria-label*="send" i], button[type="submit"]');
-    if (btn && !btn.disabled) { btn.click(); return { ok: true }; }
-    await sleep(250);
+  if (!read(box)) return { error: 'Couldn’t type into Claude’s message box.' };
+  let btn;
+  for (let i = 0; i < 24 && !btn; i++) {
+    btn = document.querySelector('[data-testid="chat-input-send"], [data-testid="code-prompt-send"]');
+    if (!btn || btn.disabled) { btn = null; await sleep(250); }
   }
-  box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
-  return { ok: true, via: 'enter' };
+  if (!btn) return { error: 'Claude’s send button didn’t turn on.' };
+  btn.click();
+  for (let i = 0; i < 40; i++) {
+    await sleep(250);
+    if (!read(box) || !box.isConnected) return { ok: true };
+  }
+  return { error: 'Claude didn’t take the message. It’s still in the box on the computer.' };
+}
+
+// On a new chat or Code session: makes sure the model is the given one (e.g. 'Opus 5.5'), whatever was used last.
+async function pageChooseModel(name) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const press = (el) => { for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) el.dispatchEvent(new (t.startsWith('pointer') ? PointerEvent : MouseEvent)(t, { bubbles: true, cancelable: true, view: window, button: 0 })); };
+  const is = () => (trigger.getAttribute('aria-label') || '').startsWith('Model: ' + name);
+  let trigger;
+  for (let i = 0; i < 40 && !trigger; i++) {
+    trigger = document.querySelector('[data-testid="model-selector-dropdown"], [data-testid="environment-row-model"]');
+    if (!trigger) await sleep(250);
+  }
+  if (!trigger) return { error: 'Couldn’t find the model picker.' };
+  if (is()) return { ok: true };
+  press(trigger);
+  await sleep(700);
+  const pick = [...document.querySelectorAll('[role="menuitemradio"]')].find((o) => o.innerText.trim().startsWith(name));
+  if (!pick) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return { error: `${name} isn’t in Claude’s model list.` }; }
+  press(pick);
+  await sleep(600);
+  return is() ? { ok: true } : { error: `Couldn’t switch to ${name}.` };
 }
 
 // On claude.ai/code's new-session screen: picks an environment from the picker under the prompt.
@@ -271,6 +301,8 @@ async function startThread(kind, text, env) {
       const c = await run(w, pageChooseEnv, e.group, e.label);
       if (c.error) throw new Error(c.error);
     }
+    const mdl = await run(w, pageChooseModel, NEW_MODEL);
+    if (mdl.error) throw new Error(mdl.error);
     const r = await run(w, pageSend, text);
     if (r.error) throw new Error(r.error);
     // Wait for claude.ai to move to the new thread's address.
