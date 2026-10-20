@@ -43,9 +43,26 @@ async function pageReadChat(org, id) {
   const textOf = (m) => (Array.isArray(m.content) && m.content.length
     ? m.content.filter((b) => b.type === 'text' && b.text).map((b) => b.text).join('\n\n')
     : m.text || '');
+  // What Claude is doing right now, as claude.ai shows it: the latest tool step ("Search Notion") or thinking summary.
+  let status = null;
+  const lastMsg = (branch.length ? branch : all).at(-1);
+  if (lastMsg && lastMsg.sender !== 'human') {
+    for (const b of [...(lastMsg.content || [])].reverse()) {
+      if (b.type === 'tool_result') continue;
+      if (b.type === 'tool_use') {
+        let m = String(b.message || '').replace(/^[\w-]+:\s*/, '') || b.name || '';
+        if (b.integration_name && !m.toLowerCase().includes(b.integration_name.toLowerCase())) m = b.integration_name + ': ' + m;
+        status = m;
+      } else if (b.type === 'thinking') {
+        try { status = JSON.parse(b.summaries || '[]').at(-1)?.summary || 'Thinking'; } catch { status = 'Thinking'; }
+      }
+      break;
+    }
+  }
   return {
     title: c.name || 'New chat',
     updated: c.updated_at,
+    status,
     messages: (branch.length ? branch : all).map((m) => ({ role: m.sender === 'human' ? 'user' : 'assistant', text: textOf(m) })).filter((m) => m.text.trim()),
   };
 }
@@ -71,7 +88,35 @@ async function pageListCode(limit) {
 async function pageReadCode(id) {
   const r = await fetch(`/v1/code/sessions/${id}/events?limit=300&sort_order=desc`, { credentials: 'include', headers: { 'anthropic-beta': 'ccr-byoc-2025-07-29', 'anthropic-version': '2023-06-01', 'anthropic-client-platform': 'web_claude_ai' } });
   if (!r.ok) throw new Error(String(r.status));
-  const events = ((await r.json()).data || []).reverse();
+  const newest = (await r.json()).data || [];
+  // What Claude is doing right now, like Claude Code's grey line: a command's description, the file it's reading, etc.
+  const base = (p) => String(p || '').split(/[\\/]/).pop();
+  const describe = (b) => {
+    const i = b.input || {};
+    const mcp = /^mcp__(.+?)__(.+)$/.exec(b.name || '');
+    // "Using Claude Browser"; connectors with id-like names fall back to the tool ("Using notion search").
+    if (mcp) return 'Using ' + (/^[0-9a-f-]{20,}$/i.test(mcp[1]) ? mcp[2] : mcp[1]).replace(/^plugin_[^_]+_/, '').replace(/[-_]+/g, ' ');
+    switch (b.name) {
+      case 'Bash': case 'PowerShell': return i.description || 'Running a command';
+      case 'Read': return 'Reading ' + base(i.file_path);
+      case 'Edit': case 'Write': case 'NotebookEdit': return 'Editing ' + base(i.file_path || i.notebook_path);
+      case 'Grep': case 'Glob': return 'Searching the code';
+      case 'WebFetch': case 'WebSearch': return 'Searching the web';
+      case 'Agent': case 'Task': return i.description || 'Running an agent';
+      case 'TodoWrite': return 'Updating the plan';
+      default: return b.name || null;
+    }
+  };
+  let status = null;
+  for (const e of newest) {
+    const blocks = e.payload?.message?.content;
+    if (e.event_type === 'user') { if (Array.isArray(blocks) && blocks.some((b) => b.type === 'tool_result')) continue; break; }
+    if (e.event_type !== 'assistant' || !Array.isArray(blocks) || !blocks.length) continue;
+    const b = blocks.at(-1);
+    status = b.type === 'tool_use' ? describe(b) : b.type === 'thinking' ? 'Thinking' : null;
+    break;
+  }
+  const events = newest.reverse();
   const messages = [];
   for (const e of events) {
     const msg = e.payload && e.payload.message;
@@ -87,7 +132,7 @@ async function pageReadCode(id) {
     if (last && last.role === role && role === 'assistant') last.text += '\n\n' + text;
     else messages.push({ role, text });
   }
-  return { messages };
+  return { messages, status };
 }
 
 // Claude Code environments you can start a session in.
@@ -233,20 +278,20 @@ const urlOf = (kind, id) => `${ORIGIN}/${kind === 'code' ? 'code' : 'chat'}/${id
 // One thread with its messages. t is { kind, id, title, t (updated), busy }; old is the last copy, kept if reading fails.
 async function readThread(t, old) {
   const key = keyOf(t.kind, t.id);
-  let messages = old?.messages || [], title = t.title, busy = false;
+  let messages = old?.messages || [], title = t.title, busy = false, status = null;
   try {
     if (t.kind === 'cowork') {
       if (!S.org) await refresh();
       const r = await run(view('api'), pageReadChat, S.org, t.id);
-      messages = r.messages; title = r.title || title;
+      messages = r.messages; title = r.title || title; status = r.status;
       const w = views.get(key);
       busy = w && !w.isDestroyed() ? await run(w, pageBusy).catch(() => false) : messages.at(-1)?.role === 'user';
     } else {
-      messages = (await run(view('api'), pageReadCode, t.id)).messages;
+      ({ messages, status } = await run(view('api'), pageReadCode, t.id));
       busy = !!t.busy;
     }
   } catch {}
-  return { key, kind: t.kind, id: t.id, title, updated: t.t, busy, url: urlOf(t.kind, t.id), messages: messages.slice(-KEEP_MESSAGES) };
+  return { key, kind: t.kind, id: t.id, title, updated: t.t, busy, status: busy ? status : null, url: urlOf(t.kind, t.id), messages: messages.slice(-KEEP_MESSAGES) };
 }
 
 async function refresh() {
