@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, clipboard, shell, nativeTheme, session } = 
 const path = require('path');
 const fs = require('fs');
 const bridge = require('./bridge');
+const updater = require('./updater');
 
 // Present as plain Chrome. WhatsApp Web and Google sign-in refuse browsers that announce "Electron".
 app.userAgentFallback = app.userAgentFallback.replace(/\s(monodesk|Electron)\/\S+/gi, '');
@@ -131,6 +132,14 @@ app.on('web-contents-created', (_event, contents) => {
   });
 });
 
+// The 𝕸 menu: this version, the newest on GitHub, and updating to it.
+ipcMain.handle('version', async () => {
+  try { return await updater.check(); } catch (e) { return { current: updater.version(), error: e.message }; }
+});
+ipcMain.handle('update', async () => {
+  try { return await updater.update(); } catch (e) { return { error: e.message }; }
+});
+
 ipcMain.handle('copy', (_e, text) => {
   clipboard.writeText(String(text ?? ''));
   return true;
@@ -146,18 +155,18 @@ ipcMain.handle('mode', (_e, mode) => {
 // style.css: restyled in place. index.html / renderer.js: the window reloads. main.js / preload.js: the app restarts.
 function watchForUpdates() {
   if (app.isPackaged) return;
-  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js']);
+  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'updater.js']);
   const changed = new Set();
   let timer;
   fs.watch(__dirname, (_ev, file) => {
-    if (!file || !files.has(file)) return;
+    if (!file || !files.has(file) || updater.state.busy) return; // an update restarts on its own when it's done
     changed.add(file);
     clearTimeout(timer);
     timer = setTimeout(() => {
       const list = [...changed];
       changed.clear();
       if (!win) return;
-      if (list.includes('main.js') || list.includes('preload.js') || list.includes('bridge.js')) {
+      if (list.includes('main.js') || list.includes('preload.js') || list.includes('bridge.js') || list.includes('updater.js')) {
         app.relaunch();
         app.exit(0);
       } else if (list.some((f) => f !== 'style.css')) {
@@ -169,6 +178,8 @@ function watchForUpdates() {
     }, 400);
   });
 }
+
+updater.ensureConfig();
 
 app.whenReady().then(() => {
   for (const m of APPS) {

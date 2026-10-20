@@ -9,3 +9,7 @@ out/
 .env
 .DS_Store
 Thumbs.db
+# Your own settings, made from config.example.js on first run. Updates never touch it.
+config.js
+# Left by an update that changed Electron; Start Monodesk.cmd runs npm install and removes it.
+.needs-install

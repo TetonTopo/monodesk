@@ -1,6 +1,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 // Personal settings live in config.js.
 const CFG = window.MONODESK_CONFIG || {};
+let VER = {}; // this version and GitHub's newest, for the 𝕸 menu
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const APPS = {
@@ -228,7 +229,7 @@ function topbar() {
     <button class="icbtn ${split ? 'on' : ''}" data-act="split" title="Split view (Ctrl \\)">${I('split')}</button>
     <button class="modebtn" data-act="mode" title="Switch to ${S.mode === 'mono' ? 'Color' : 'Mono'}">${S.mode === 'mono' ? 'Mono' : 'Color'}</button>`;
 
-  $('#top').innerHTML = `<div class="mark">&#x1D578;</div><div class="apps">${apps}</div><div class="mid">${mid}</div><div class="tools">${tools}</div>`;
+  $('#top').innerHTML = `<button class="mark" data-act="about" title="Monodesk ${esc(VER.current || '')}${VER.available ? ' · update available' : ''}">&#x1D578;${VER.available ? '<span class="upd"></span>' : ''}</button><div class="apps">${apps}</div><div class="mid">${mid}</div><div class="tools">${tools}</div>`;
 }
 
 /* ---------- home ---------- */
@@ -853,6 +854,41 @@ function openPalette() {
   inp.focus();
 }
 
+/* ---------- version and updates (the 𝕸 in the corner) ---------- */
+async function checkVersion() {
+  const had = VER.available;
+  VER = (await window.md?.version?.().catch(() => null)) || VER;
+  if (VER.available !== had || !VER.shown) { VER.shown = true; topbar(); }
+  return VER;
+}
+checkVersion();
+setInterval(checkVersion, 6 * 3600e3);
+
+function openAbout() {
+  closeLayer();
+  const r = $('#top .mark').getBoundingClientRect();
+  $('#layer').insertAdjacentHTML('beforeend', `<div class="ov lite" data-ov><div class="replypop about" style="left:${r.left}px; top:${r.bottom + 6}px; width:260px" role="dialog" aria-label="About Monodesk">
+    <div class="ah"><b>Monodesk</b><span>${esc(VER.current || '')}</span></div>
+    <div class="as" id="about-status">Checking GitHub…</div>
+    <div class="rf"><span class="hint">github.com/TetonTopo/monodesk</span><button class="btn" id="about-go" hidden>Update</button></div>
+  </div></div>`);
+  $('[data-ov]').addEventListener('pointerdown', (e) => { if (e.target.matches('[data-ov]')) closeLayer(); });
+  const status = $('#about-status'), go = $('#about-go');
+  checkVersion().then((v) => {
+    if (!status.isConnected) return;
+    $('.about .ah span').textContent = v.current || '';
+    if (v.error) status.textContent = `Couldn’t reach GitHub (${v.error}).`;
+    else if (v.available) { status.textContent = `Version ${v.latest} is available.`; go.hidden = false; }
+    else status.textContent = 'Up to date.';
+  });
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    status.textContent = 'Updating… Monodesk restarts when it’s done.';
+    const res = await window.md.update().catch((e) => ({ error: e.message }));
+    if (res?.error) { status.textContent = res.error; go.disabled = false; }
+  });
+}
+
 /* ---------- helpers ---------- */
 let toastTimer;
 function toast(msg) {
@@ -876,6 +912,7 @@ document.addEventListener('click', (e) => {
     case 'split': toggleSplit(); break;
     case 'mode': setMode(S.mode === 'mono' ? 'color' : 'mono'); break;
     case 'palette': openPalette(); break;
+    case 'about': openAbout(); break;
     case 'focus': setFocus(+d.i); break;
     case 'close': e.stopPropagation(); S.panes.splice(+d.i, 1); S.focus = 0; layout(); break;
     case 'tab': selectTab(d.mod, +d.i); break;

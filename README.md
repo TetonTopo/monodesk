@@ -5,7 +5,7 @@ Gmail, Notion, Claude and WhatsApp in one quiet window, with a Home screen that 
 ## Install (Windows, about 5 minutes)
 
 1. Install **Node.js LTS** from https://nodejs.org (the big green button; accept the defaults).
-2. Get the code somewhere permanent, for example in `Documents`: `git clone https://github.com/TetonTopo/monodesk`, or download `monodesk-app.zip` and unzip it. Don't run it from inside the zip or from Downloads you clean out.
+2. Download **https://github.com/TetonTopo/monodesk/archive/refs/heads/main.zip**, unzip it, and move the `monodesk-main` folder somewhere permanent, for example `Documentsmonodesk`. Don't run it from inside the zip or from Downloads you clean out. (If you use git: `git clone https://github.com/TetonTopo/monodesk` works too.)
 3. Double-click **Start Monodesk.cmd**. The first time it downloads Electron (about 100 MB, a minute or two), then Monodesk opens and the console window closes on its own.
 4. From then on, open it from the **Monodesk** shortcut it makes in the folder and in the Start menu. To keep it on the taskbar, right-click Monodesk there and pick **Pin to taskbar**.
 
@@ -20,7 +20,7 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 
 ## What's where
 
-**Top bar:** Home, Mail, Notion, Co-work, Claude Code, WhatsApp, then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. The **Mono / Color** button on the right switches between grey and each app's own colours.
+**Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. The **Mono / Color** button on the right switches between grey and each app's own colours.
 
 **Home:**
 - **WhatsApp:** unread chats on top, then your pinned chats. **Reply** sends a message without leaving Home, **Read** marks a chat read. Pin a chat by opening it in WhatsApp and pressing the pin on the panel; press again to unpin.
@@ -43,12 +43,18 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 
 ## Make it yours
 
-Open **config.js** in Notepad:
+Open **config.js** in Notepad (Monodesk makes it from `config.example.js` the first time it starts; updates never change it):
 - `todoBoard`: link to your Notion to-do board (a database shown as a board). The **+** adds a card to it. Leave it `''` to hide the +.
 - `todoColumn`: which column the + adds to, for example `'Soon'`. Notion hides empty columns, so keep at least one card in it.
 - `triagePrompt`: what **Run now** sends to Claude. If you have a Claude skill for this, name it here (for example `'Run my inbox triage'`).
 
 Save the file and Monodesk reloads by itself. Changes to the other files (style.css, renderer.js, main.js) also apply live while Monodesk is open, so you can ask Claude Code to change things and watch them happen.
+
+## Updating
+
+Click the **𝕸** in the top-left corner. It shows the version you're on and checks GitHub; when a newer one is out, the 𝕸 gets an orange dot and the menu has an **Update** button. Update downloads the new version (or runs `git pull` in a git checkout), keeps your `config.js` and sign-ins, and restarts Monodesk. Dispatch, if it's installed next to Monodesk, updates too.
+
+**Publishing a new version** (for whoever maintains Monodesk): make the change, raise `version` in `package.json` (0.2.0 → 0.2.1), commit and push to `main`. Everyone's 𝕸 shows the update within six hours, or right away when they click it.
 
 ## Dispatch (Claude on your iPhone)
 

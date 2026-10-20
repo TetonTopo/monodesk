@@ -1,4 +1,5 @@
-// Your personal Monodesk settings. Everyone keeps their own copy of this file.
+// The starting settings. On first run Monodesk copies this to config.js, which is yours: edit that one.
+// Updates replace this file but never config.js.
 // Sign-ins, pinned chats and drafts are not stored here. They stay in Windows, in %APPDATA%\Monodesk.
 window.MONODESK_CONFIG = {
   // The + in the top bar adds a card to this Notion board, in the column named below.

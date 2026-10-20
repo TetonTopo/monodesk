@@ -6,6 +6,13 @@ where node >nul 2>nul || (
   exit /b 1
 )
 if not exist node_modules call npm install
+rem An update that changed Electron leaves .needs-install. Wait for the old Monodesk to close, then install.
+if exist .needs-install (
+  echo Finishing the Monodesk update...
+  timeout /t 3 /nobreak >nul
+  call npm install
+  del .needs-install
+)
 rem Electron downloads its program the first time, about 100 MB.
 if not exist "node_modules\electron\dist\electron.exe" (
   echo Downloading Electron, about 100 MB. This only happens once.
