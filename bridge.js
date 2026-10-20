@@ -12,6 +12,7 @@ const ORIGIN = 'https://claude.ai';
 // Dispatch's files (github.com/TetonTopo/dispatch): the MONODESK_DISPATCH folder if set, else a dispatch checkout next to Monodesk.
 const PHONE_DIR = path.resolve(process.env.MONODESK_DISPATCH || path.join(__dirname, '..', 'dispatch'));
 const TOP = 3;
+const HISTORY = 40; // How many recent chats and Code sessions (each) the phone's list shows.
 const NEW_MODEL = 'Opus 5.5'; // New chats and Code sessions from the phone always start on this model.
 const KEEP_MESSAGES = 40;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
@@ -224,47 +225,52 @@ async function run(w, fn, ...args) {
 }
 
 /* ---------- thread state ---------- */
-const S = { threads: [], org: null, error: null, lastAsk: 0, refreshing: null };
+// threads: the top few, with messages. history: every recent thread, titles only, for the phone's list.
+const S = { threads: [], history: [], org: null, error: null, lastAsk: 0, refreshing: null };
 const keyOf = (kind, id) => `${kind}:${id}`;
 const urlOf = (kind, id) => `${ORIGIN}/${kind === 'code' ? 'code' : 'chat'}/${id}`;
+
+// One thread with its messages. t is { kind, id, title, t (updated), busy }; old is the last copy, kept if reading fails.
+async function readThread(t, old) {
+  const key = keyOf(t.kind, t.id);
+  let messages = old?.messages || [], title = t.title, busy = false;
+  try {
+    if (t.kind === 'cowork') {
+      if (!S.org) await refresh();
+      const r = await run(view('api'), pageReadChat, S.org, t.id);
+      messages = r.messages; title = r.title || title;
+      const w = views.get(key);
+      busy = w && !w.isDestroyed() ? await run(w, pageBusy).catch(() => false) : messages.at(-1)?.role === 'user';
+    } else {
+      messages = (await run(view('api'), pageReadCode, t.id)).messages;
+      busy = !!t.busy;
+    }
+  } catch {}
+  return { key, kind: t.kind, id: t.id, title, updated: t.t, busy, url: urlOf(t.kind, t.id), messages: messages.slice(-KEEP_MESSAGES) };
+}
 
 async function refresh() {
   if (S.refreshing) return S.refreshing;
   S.refreshing = (async () => {
     let chats = [], code = [], signedOut = false, failed = null;
     try {
-      const r = await run(view('api'), pageListChats, 12);
+      const r = await run(view('api'), pageListChats, HISTORY);
       if (r.error) signedOut = true; else { S.org = r.org; chats = r.items.map((c) => ({ kind: 'cowork', id: c.id, title: c.title, t: Date.parse(c.updated) || 0 })); }
     } catch (e) {
       if (/\b(401|403)\b/.test(e.message)) signedOut = true; else failed = 'Claude: ' + e.message;
     }
     try {
-      const r = await run(view('api'), pageListCode, 12);
+      const r = await run(view('api'), pageListCode, HISTORY);
       if (r.error) signedOut = true;
       else code = r.items.map((c) => ({ kind: 'code', id: c.id, title: c.title, t: c.when, busy: c.busy }));
     } catch (e) { failed = failed || 'Claude Code: ' + e.message; }
     if (signedOut && !chats.length && !code.length) { S.error = 'signed-out'; S.threads = []; return; }
     if (failed && !chats.length && !code.length) { S.error = failed; return; }
 
-    const top = [...chats, ...code].sort((a, b) => b.t - a.t).slice(0, TOP);
+    const all = [...chats, ...code].sort((a, b) => b.t - a.t);
+    S.history = all.map((t) => ({ key: keyOf(t.kind, t.id), kind: t.kind, title: t.title, updated: t.t }));
     const prev = new Map(S.threads.map((t) => [t.key, t]));
-    const next = await Promise.all(top.map(async (t) => {
-      const key = keyOf(t.kind, t.id);
-      const old = prev.get(key);
-      let messages = old?.messages || [], title = t.title, busy = false;
-      try {
-        if (t.kind === 'cowork') {
-          const r = await run(view('api'), pageReadChat, S.org, t.id);
-          messages = r.messages; title = r.title || title;
-          const w = views.get(key);
-          busy = w && !w.isDestroyed() ? await run(w, pageBusy).catch(() => false) : messages.at(-1)?.role === 'user';
-        } else {
-          messages = (await run(view('api'), pageReadCode, t.id)).messages;
-          busy = t.busy;
-        }
-      } catch {}
-      return { key, kind: t.kind, id: t.id, title, updated: t.t, busy, url: urlOf(t.kind, t.id), messages: messages.slice(-KEEP_MESSAGES) };
-    }));
+    const next = await Promise.all(all.slice(0, TOP).map((t) => readThread(t, prev.get(keyOf(t.kind, t.id)))));
     // Hidden windows for threads that left the top four go away.
     for (const name of [...views.keys()]) if (/^(cowork|code):/.test(name) && !next.some((t) => t.key === name)) closeView(name);
     S.threads = next;
@@ -380,6 +386,18 @@ async function handle(req, res) {
       return send(res, 200, { threads: S.threads, error: S.error, at: Date.now() });
     }
     if (req.method === 'GET' && url.pathname === '/api/environments') return send(res, 200, await environments());
+    if (req.method === 'GET' && url.pathname === '/api/history') {
+      if (!S.history.length || url.searchParams.has('now')) await refresh();
+      return send(res, 200, { threads: S.history });
+    }
+    const one = /^\/api\/threads\/([^/]+)$/.exec(url.pathname);
+    if (req.method === 'GET' && one) {
+      const key = decodeURIComponent(one[1]);
+      const [kind, id] = key.split(':');
+      if (!['cowork', 'code'].includes(kind) || !id) return send(res, 404, { error: 'Unknown thread' });
+      const h = S.history.find((x) => x.key === key);
+      return send(res, 200, await readThread({ kind, id, title: h?.title || '', t: h?.updated || 0 }, S.threads.find((x) => x.key === key)));
+    }
     const m = /^\/api\/threads\/([^/]+)\/reply$/.exec(url.pathname);
     if (req.method === 'POST' && m) {
       const { text } = await readBody(req);
