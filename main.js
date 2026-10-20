@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const bridge = require('./bridge');
 const updater = require('./updater');
+const calendar = require('./calendar');
 
 // Present as plain Chrome. WhatsApp Web and Google sign-in refuse browsers that announce "Electron".
 app.userAgentFallback = app.userAgentFallback.replace(/\s(monodesk|Electron)\/\S+/gi, '');
@@ -140,6 +141,9 @@ ipcMain.handle('update', async () => {
   try { return await updater.update(); } catch (e) { return { error: e.message }; }
 });
 
+// Today's and tomorrow's meetings, from Google Calendar with the Mail tab's sign-in.
+ipcMain.handle('calendar', (_e, force) => calendar.events(!!force));
+
 ipcMain.handle('copy', (_e, text) => {
   clipboard.writeText(String(text ?? ''));
   return true;
@@ -155,7 +159,7 @@ ipcMain.handle('mode', (_e, mode) => {
 // style.css: restyled in place. index.html / renderer.js: the window reloads. main.js / preload.js: the app restarts.
 function watchForUpdates() {
   if (app.isPackaged) return;
-  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'updater.js']);
+  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'updater.js', 'calendar.js']);
   const changed = new Set();
   let timer;
   fs.watch(__dirname, (_ev, file) => {
@@ -166,7 +170,7 @@ function watchForUpdates() {
       const list = [...changed];
       changed.clear();
       if (!win) return;
-      if (list.includes('main.js') || list.includes('preload.js') || list.includes('bridge.js') || list.includes('updater.js')) {
+      if (list.includes('main.js') || list.includes('preload.js') || list.includes('bridge.js') || list.includes('updater.js') || list.includes('calendar.js')) {
         app.relaunch();
         app.exit(0);
       } else if (list.some((f) => f !== 'style.css')) {

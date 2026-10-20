@@ -80,6 +80,15 @@ body.darwin .top{padding:0 10px 0 82px}
 .home .hd{display:flex; align-items:baseline; gap:12px; padding:0 2px; flex:none}
 .home h1{font-size:20px; letter-spacing:-.02em; font-weight:600; margin:0}
 .home .date{color:var(--faint); font-size:13px}
+/* Today's meetings, next to the date: one block each. Finished ones fade; the one happening now is brighter. */
+.meets{flex:1; min-width:0; display:flex; align-items:center; gap:6px; overflow:hidden; align-self:center; margin-left:6px}
+.meets .mt{flex:none; max-width:280px; height:24px; display:inline-flex; align-items:center; padding:0 10px; border:1px solid var(--line-2); border-radius:7px; background:var(--surface); color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.meets .mt.now{color:var(--fg); border-color:var(--muted)}
+.meets .mt.past{opacity:.45}
+.meets .mt.allday{border-style:dashed}
+.meets .mt.none{border:0; background:none; padding:0; color:var(--faint)}
+/* In the top bar (away from Home): just the next meeting, in quiet grey beside the search button. */
+.nextmeet{max-width:300px; padding:0 8px; color:var(--faint); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; -webkit-app-region:no-drag}
 .quad{flex:1; min-height:0; display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:12px}
 .q{border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column; min-height:0; min-width:0; overflow:hidden; background:var(--surface)}
 .qh{display:flex; align-items:center; gap:8px; height:42px; padding:0 8px 0 12px; border-bottom:1px solid var(--line); font-weight:600; flex:none; min-width:0}

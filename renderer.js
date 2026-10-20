@@ -2,6 +2,7 @@ const $ = (s, r = document) => r.querySelector(s);
 // Personal settings live in config.js.
 const CFG = window.MONODESK_CONFIG || {};
 let VER = {}; // this version and GitHub's newest, for the 𝕸 menu
+let CAL = { events: [], error: null, loaded: false }; // today's and tomorrow's meetings, from Google Calendar
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const APPS = {
@@ -225,6 +226,7 @@ function topbar() {
 
   const tools = `
     ${S.panes.includes('wa') ? `<button class="searchbtn" data-act="export" title="Copy the open WhatsApp chat as text (Ctrl Shift E)">${I('copy')}Copy chat</button>` : ''}
+    ${nextMeetHTML()}
     <button class="searchbtn" data-act="palette">${I('search')}<span class="kbd">Ctrl K</span></button>
     <button class="icbtn ${split ? 'on' : ''}" data-act="split" title="Split view (Ctrl \\)">${I('split')}</button>
     <button class="modebtn" data-act="mode" title="Switch to ${S.mode === 'mono' ? 'Color' : 'Mono'}">${S.mode === 'mono' ? 'Mono' : 'Color'}</button>`;
@@ -237,7 +239,7 @@ function buildHome() {
   const d = new Date();
   const h = d.getHours();
   homeEl.innerHTML = `
-    <div class="hd"><h1>${h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}</h1><span class="date">${d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</span></div>
+    <div class="hd"><h1>${h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}</h1><span class="date">${d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</span><div class="meets" id="meets"></div></div>
     <div class="quad">
       <section class="q" data-mod="wa">
         <div class="qh"><span class="ic">${I('wa')}</span>WhatsApp<span class="sub" id="wa-sub"></span><span class="sp"></span><button class="lnk" data-act="wa-pin" title="Pin the chat that's open in WhatsApp here, or unpin it">${I('pin')}</button><button class="lnk" data-act="go" data-mod="wa">Open</button></div>
@@ -268,6 +270,7 @@ function buildHome() {
   });
   buildNotionMini();
   buildTriage();
+  renderMeets();
 }
 
 /* Inbox triage: a small claude.ai chat that runs the inbox-triage skill, so its questions can be answered right on Home. */
@@ -853,6 +856,58 @@ function openPalette() {
   draw();
   inp.focus();
 }
+
+/* ---------- meetings: blocks next to the date on Home, the next one in the top bar elsewhere ---------- */
+const clock = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).replace(/\s?([AP])\.?M\.?/i, (_m, a) => a.toLowerCase() + 'm');
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+const meetTip = (e) => `${e.title}\n${e.allDay ? 'All day' : `${clock(e.start)} – ${clock(e.end)}`}`;
+
+// "University of Regina meeting · 8:30am", "… · now", "… · tomorrow 9:00am"
+function meetLabel(e, now = Date.now()) {
+  if (e.allDay) return `${e.title} · all day`;
+  if (e.start <= now) return `${e.title} · now`;
+  return `${e.title} · ${sameDay(e.start, now) ? '' : 'tomorrow '}${clock(e.start)}`;
+}
+
+function nextMeet(now = Date.now()) {
+  return CAL.events.find((e) => !e.allDay && e.end > now) || null;
+}
+
+// The top bar's one quiet block, only when Home isn't showing (Home has the whole list).
+function nextMeetHTML() {
+  if (S.panes.includes('home')) return '';
+  const e = nextMeet();
+  return e ? `<span class="nextmeet" title="${esc(meetTip(e))}">${esc(meetLabel(e))}</span>` : '';
+}
+
+function renderMeets() {
+  const box = $('#meets');
+  if (!box) return;
+  const now = Date.now();
+  const today = CAL.events.filter((e) => sameDay(e.start, now));
+  let html;
+  if (CAL.error === 'signed-out') html = '<span class="mt none">Sign in to Gmail in the Mail tab to see your meetings</span>';
+  else if (!CAL.loaded) html = '';
+  else if (!today.length) html = '<span class="mt none">No meetings today</span>';
+  else html = today.map((e) => `<span class="mt ${e.allDay ? 'allday' : e.end <= now ? 'past' : e.start <= now ? 'now' : ''}" title="${esc(meetTip(e))}">${esc(meetLabel(e, now))}</span>`).join('');
+  if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
+}
+
+let lastNext = '';
+function tickMeets() {
+  renderMeets();
+  const n = nextMeetHTML();
+  if (n !== lastNext) { lastNext = n; topbar(); }
+}
+
+async function loadCalendar(force) {
+  const r = await window.md?.calendar?.(force).catch(() => null);
+  if (r) CAL = { events: r.events || [], error: r.error || null, loaded: true };
+  tickMeets();
+}
+loadCalendar();
+setInterval(loadCalendar, 5 * 60e3);
+setInterval(tickMeets, 30e3);
 
 /* ---------- version and updates (the 𝕸 in the corner) ---------- */
 async function checkVersion() {

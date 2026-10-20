@@ -22,6 +22,8 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 
 **Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. The **Mono / Color** button on the right switches between grey and each app's own colours.
 
+**Meetings:** today's meetings sit next to the date on Home ("University of Regina meeting · 8:30am"); in the other apps, the next one shows in grey beside the search button. They come from Google Calendar using the Mail tab's sign-in, so sign in to Gmail there first.
+
 **Home:**
 - **WhatsApp:** unread chats on top, then your pinned chats. **Reply** sends a message without leaving Home, **Read** marks a chat read. Pin a chat by opening it in WhatsApp and pressing the pin on the panel; press again to unpin.
 - **Mail:** the latest important unread email in your Primary inbox (automated senders are skipped). **Mark as read** works while the Mail tab is showing your inbox.
