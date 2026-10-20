@@ -1,0 +1,14 @@
+{
+  "name": "monodesk",
+  "productName": "Monodesk",
+  "version": "0.1.0",
+  "description": "Gmail, Notion, Claude and WhatsApp in one quiet window.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.9.0"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+# Made by Monodesk on first run; it points at this computer's folder.
+Monodesk.lnk
+# Dispatch lives in its own repo (TetonTopo/dispatch), checked out next to this folder.
+phone/
+dist/
+out/
+*.log
+.env
+.DS_Store
+Thumbs.db

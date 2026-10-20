@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:">
+  <title>Monodesk</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css" id="shell-css">
+</head>
+<body>
+  <div class="app">
+    <header class="top" id="top"></header>
+    <main class="stage" id="stage">
+      <section class="view home" id="v-home" data-mod="home"></section>
+    </main>
+  </div>
+  <div id="layer"></div>
+  <script src="config.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+const { app, BrowserWindow, ipcMain, clipboard, shell, nativeTheme, session } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const bridge = require('./bridge');
+
+// Present as plain Chrome. WhatsApp Web and Google sign-in refuse browsers that announce "Electron".
+app.userAgentFallback = app.userAgentFallback.replace(/\s(monodesk|Electron)\/\S+/gi, '');
+
+const APPS = ['mail', 'notion', 'claude', 'wa'];
+const ALLOWED_PERMISSIONS = ['notifications', 'media', 'clipboard-read', 'clipboard-sanitized-write', 'fullscreen'];
+// Links to an app's own site open as a new tab of that app.
+const OWN_HOSTS = { mail: /^mail\.google\.com$/, notion: /(^|\.)notion\.(so|com)$/, claude: /(^|\.)claude\.ai$/ };
+// Sign-in pages open as small popups that share the app's session. Every other link goes to your normal browser.
+const POPUP_HOSTS = [/(^|\.)accounts\.google\.com$/, /(^|\.)notion\.(so|com)$/, /(^|\.)claude\.ai$/, /(^|\.)anthropic\.com$/, /(^|\.)appleid\.apple\.com$/, /(^|\.)login\.microsoftonline\.com$/];
+const SHORTCUT_KEYS = ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6'];
+// The shell stays dark in both modes.
+const OVERLAY = { color: '#121212', symbolColor: '#9c9a95', height: 40 };
+const ICON = path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+
+// Windows: Monodesk gets its own taskbar identity, so pinning it pins Monodesk rather than bare Electron.
+const APP_ID = 'com.monodesk.app';
+const LAUNCH_ARGS = `"${__dirname}"`;
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
+
+let win;
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1440,
+    height: 920,
+    minWidth: 760,
+    minHeight: 520,
+    backgroundColor: '#080808',
+    title: 'Monodesk',
+    icon: ICON,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: process.platform === 'darwin' ? undefined : OVERLAY,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      webviewTag: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  if (process.platform === 'win32') {
+    // What a taskbar pin of this window runs.
+    win.setAppDetails({ appId: APP_ID, appIconPath: ICON, relaunchCommand: `"${process.execPath}" ${LAUNCH_ARGS}`, relaunchDisplayName: 'Monodesk' });
+  }
+  win.loadFile('index.html');
+}
+
+// Keeps a Monodesk shortcut in the Start menu and in this folder. Either one starts Monodesk with no console window and can be pinned.
+function writeShortcuts() {
+  if (process.platform !== 'win32' || app.isPackaged) return;
+  const link = { target: process.execPath, args: LAUNCH_ARGS, cwd: __dirname, icon: ICON, iconIndex: 0, appUserModelId: APP_ID, description: 'Gmail, Notion, Claude and WhatsApp in one quiet window.' };
+  for (const dir of [path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'), __dirname]) {
+    try { shell.writeShortcutLink(path.join(dir, 'Monodesk.lnk'), 'create', link); } catch {}
+  }
+}
+
+function appOf(contents) {
+  return APPS.find((m) => contents.session === session.fromPartition('persist:' + m));
+}
+
+// A link to another app's page (a Notion page clicked in Claude, say) opens in that app's tab.
+// Sign-in and connect flows stay popups, since the page that opened them is waiting for the answer.
+const AUTH_PATH = /oauth|authori[sz]e|install-integration|login|signin|signup|sso|callback|consent/i;
+function linkApp(url) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (AUTH_PATH.test(u.pathname + u.search)) return null;
+  return Object.keys(OWN_HOSTS).find((m) => OWN_HOSTS[m].test(u.hostname)) || null;
+}
+
+app.on('web-contents-created', (_event, contents) => {
+  if (contents.getType() !== 'webview') return;
+
+  contents.setWindowOpenHandler(({ url }) => {
+    let host = '';
+    try { host = new URL(url).hostname; } catch {}
+    const mod = appOf(contents);
+    if (mod && OWN_HOSTS[mod]?.test(host)) {
+      win?.webContents.send('new-tab', { mod, url });
+      return { action: 'deny' };
+    }
+    const other = linkApp(url);
+    if (other) {
+      win?.webContents.send('new-tab', { mod: other, url });
+      return { action: 'deny' };
+    }
+    if (POPUP_HOSTS.some((re) => re.test(host))) {
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, backgroundColor: '#ffffff' } };
+    }
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  // Same for a plain link that would take one app's view over to another app's site.
+  contents.on('will-navigate', (event, url) => {
+    const mod = appOf(contents), other = linkApp(url);
+    if (mod && other && other !== mod) {
+      event.preventDefault();
+      win?.webContents.send('new-tab', { mod: other, url });
+    }
+  });
+
+  // Keystrokes inside an app never reach the shell, so forward Monodesk's shortcuts from here.
+  contents.on('before-input-event', (event, input) => {
+    // Claude: hold Alt to number recent chats, Alt 1–9 to open one. AltGr (Ctrl+Alt) is left alone for typing.
+    if (appOf(contents) === 'claude' && !input.control && !input.meta) {
+      const tag = '@' + contents.id;
+      if (input.key === 'Alt') {
+        win?.webContents.send('shortcut', (input.type === 'keyDown' ? (input.isAutoRepeat ? '' : 'alt-hold') : 'alt-up') + tag);
+        return;
+      }
+      if (input.type === 'keyDown' && input.alt && !input.shift && /^[1-9]$/.test(input.key)) {
+        event.preventDefault();
+        win?.webContents.send('shortcut', 'alt+' + input.key + tag);
+        return;
+      }
+    }
+    if (input.type !== 'keyDown' || !(input.control || input.meta)) return;
+    const key = input.key.toLowerCase();
+    if (input.shift && key === 'e') {
+      event.preventDefault();
+      win?.webContents.send('shortcut', 'shift+e');
+    } else if (!input.shift && !input.alt && SHORTCUT_KEYS.includes(key)) {
+      event.preventDefault();
+      win?.webContents.send('shortcut', key);
+    }
+  });
+});
+
+ipcMain.handle('copy', (_e, text) => {
+  clipboard.writeText(String(text ?? ''));
+  return true;
+});
+
+ipcMain.handle('mode', (_e, mode) => {
+  // Mono asks every app for its dark theme (the shell then turns it grey). Color shows each app's normal look.
+  nativeTheme.themeSource = mode === 'color' ? 'light' : 'dark';
+  return true;
+});
+
+// Live updates while the app is open. Sign-ins live on disk, so none of these sign you out.
+// style.css: restyled in place. index.html / renderer.js: the window reloads. main.js / preload.js: the app restarts.
+function watchForUpdates() {
+  if (app.isPackaged) return;
+  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js']);
+  const changed = new Set();
+  let timer;
+  fs.watch(__dirname, (_ev, file) => {
+    if (!file || !files.has(file)) return;
+    changed.add(file);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const list = [...changed];
+      changed.clear();
+      if (!win) return;
+      if (list.includes('main.js') || list.includes('preload.js') || list.includes('bridge.js')) {
+        app.relaunch();
+        app.exit(0);
+      } else if (list.some((f) => f !== 'style.css')) {
+        win.webContents.once('did-finish-load', () => win.webContents.send('toast', 'Monodesk updated'));
+        win.webContents.reload();
+      } else {
+        win.webContents.send('css-changed');
+      }
+    }, 400);
+  });
+}
+
+app.whenReady().then(() => {
+  for (const m of APPS) {
+    session.fromPartition('persist:' + m).setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(ALLOWED_PERMISSIONS.includes(permission));
+    });
+  }
+  nativeTheme.themeSource = 'dark';
+  createWindow();
+  writeShortcuts();
+  watchForUpdates();
+  // The phone app, at http://127.0.0.1:47800 (tailscale serve shares it with your devices).
+  bridge.start();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
