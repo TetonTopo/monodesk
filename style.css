@@ -12,6 +12,7 @@
 :root[data-mode="color"] [data-mod="notion"]{ --ink:#e6e3dc; --ink-fg:#191919 }
 :root[data-mode="color"] [data-mod="claude"]{ --ink:#d97757; --ink-fg:#1f120c }
 :root[data-mode="color"] [data-mod="wa"]{ --ink:#25d366; --ink-fg:#06281a }
+:root[data-mode="color"] [data-mod="cal"]{ --ink:#4285f4; --ink-fg:#0b1a33 }
 
 *{box-sizing:border-box}
 html,body{height:100%; margin:0}
@@ -101,6 +102,15 @@ body.darwin .top{padding:0 10px 0 82px}
 .qweb{display:flex; overflow:hidden; background:#ffffff}
 :root:not([data-mode="color"]) .qweb{background:#191919}
 .qweb webview{flex:1; width:100%; height:100%; border:0}
+/* The Claude corner as Dispatch (iframe from Monodesk's own server), and its on/off switch. */
+.qweb.dispatch{background:var(--surface)}
+.qweb iframe{flex:1; width:100%; height:100%; border:0; display:block}
+:root:not([data-mode="color"]) .qweb iframe{filter:grayscale(1)}
+.lnk.tgl{display:inline-flex; align-items:center; gap:6px}
+.lnk.tgl .sw{position:relative; width:22px; height:12px; border-radius:6px; background:var(--line-2); transition:background .15s}
+.lnk.tgl .sw::after{content:""; position:absolute; top:2px; left:2px; width:8px; height:8px; border-radius:50%; background:var(--muted); transition:transform .15s, background .15s}
+.lnk.tgl.on .sw{background:var(--muted)}
+.lnk.tgl.on .sw::after{transform:translateX(10px); background:var(--fg)}
 .item{display:block; width:100%; text-align:left; padding:10px 12px; border-bottom:1px solid var(--line)}
 .item:hover{background:var(--sunk)}
 .item .t1{display:flex; align-items:baseline; gap:8px; min-width:0}

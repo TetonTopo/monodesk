@@ -13,3 +13,5 @@ Thumbs.db
 config.js
 # Left by an update that changed Electron; Start Monodesk.cmd runs npm install and removes it.
 .needs-install
+# Dispatch, fetched here when there is no dispatch checkout next to Monodesk.
+dispatch/

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, clipboard, shell, nativeTheme, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const vm = require('vm');
 const bridge = require('./bridge');
 const updater = require('./updater');
 const calendar = require('./calendar');
@@ -14,7 +15,7 @@ const ALLOWED_PERMISSIONS = ['notifications', 'media', 'clipboard-read', 'clipbo
 const OWN_HOSTS = { mail: /^mail\.google\.com$/, notion: /(^|\.)notion\.(so|com)$/, claude: /(^|\.)claude\.ai$/ };
 // Sign-in pages open as small popups that share the app's session. Every other link goes to your normal browser.
 const POPUP_HOSTS = [/(^|\.)accounts\.google\.com$/, /(^|\.)notion\.(so|com)$/, /(^|\.)claude\.ai$/, /(^|\.)anthropic\.com$/, /(^|\.)appleid\.apple\.com$/, /(^|\.)login\.microsoftonline\.com$/];
-const SHORTCUT_KEYS = ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6'];
+const SHORTCUT_KEYS = ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7'];
 // The shell stays dark in both modes.
 const OVERLAY = { color: '#121212', symbolColor: '#9c9a95', height: 40 };
 const ICON = path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png');
@@ -141,7 +142,7 @@ ipcMain.handle('update', async () => {
   try { return await updater.update(); } catch (e) { return { error: e.message }; }
 });
 
-// Today's and tomorrow's meetings, from Google Calendar with the Mail tab's sign-in.
+// Today's meetings, from Google Calendar with the Mail tab's sign-in.
 ipcMain.handle('calendar', (_e, force) => calendar.events(!!force));
 
 ipcMain.handle('copy', (_e, text) => {
@@ -170,7 +171,11 @@ function watchForUpdates() {
       const list = [...changed];
       changed.clear();
       if (!win) return;
-      if (list.includes('main.js') || list.includes('preload.js') || list.includes('bridge.js') || list.includes('updater.js') || list.includes('calendar.js')) {
+      const restart = ['main.js', 'preload.js', 'bridge.js', 'updater.js', 'calendar.js'];
+      if (list.some((f) => restart.includes(f))) {
+        // Restart only if they all parse: a half-saved file would otherwise stop Monodesk until it's started by hand.
+        const broken = restart.find((f) => { try { new vm.Script(fs.readFileSync(path.join(__dirname, f), 'utf8'), { filename: f }); return false; } catch { return true; } });
+        if (broken) { win.webContents.send('toast', `${broken} has an error, so Monodesk didn't restart. Fix it and save again.`); return; }
         app.relaunch();
         app.exit(0);
       } else if (list.some((f) => f !== 'style.css')) {

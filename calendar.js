@@ -1,4 +1,4 @@
-// Today's and tomorrow's meetings for the top bar and Home, read from Google Calendar's day view
+// Today's meetings (timed ones, on your own calendar) for the top bar and Home, read from Google Calendar's day view
 // in a hidden window that shares the Mail tab's Google sign-in (persist:mail). Nothing to set up.
 const { BrowserWindow } = require('electron');
 
@@ -16,6 +16,11 @@ async function pageReadDay() {
     await sleep(250);
   }
   await sleep(1200); // let the rest of the day's chips draw
+  // Whose calendar this is: the Google account button reads "Google Account: Name (you@example.com)".
+  const account = ([...document.querySelectorAll('[aria-label*="@"]')].map((e) => e.getAttribute('aria-label')).find((l) => /google account/i.test(l)) || '')
+    .match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0]?.toLowerCase() || null;
+  // An event id is base64 of "<event> <calendar>", so each event says which calendar it's on.
+  const calOf = (id) => { try { return atob(id.replace(/-/g, '+').replace(/_/g, '/')).split(' ')[1]?.toLowerCase() || null; } catch { return null; } };
   const seen = new Set(), out = [];
   for (const el of document.querySelectorAll('[data-eventid]')) {
     const id = el.dataset.eventid;
@@ -23,9 +28,17 @@ async function pageReadDay() {
     seen.add(id);
     const texts = [...el.querySelectorAll('div, span')].map((d) => d.textContent.replace(/\s+/g, ' ').trim());
     const label = texts.find((t) => /,/.test(t) && /\b(to|all day)\b/i.test(t)) || el.getAttribute('aria-label') || '';
-    out.push({ id, label, lines: el.innerText.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3) });
+    out.push({ id, cal: calOf(id), label, lines: el.innerText.split('\n').map((s) => s.trim()).filter(Boolean).slice(0, 3) });
   }
-  return { events: out };
+  return { account, events: out };
+}
+
+// Only the signed-in person's own calendar (not coworkers', shared or holiday calendars).
+// Gmail addresses are shortened to "name@m" in event ids. If no event matches, nothing is filtered, so a change on Google's side shows too much rather than nothing.
+function ownOnly(raw, account) {
+  if (!account) return raw;
+  const mine = (c) => c === account || c === account.replace(/@gmail\.com$/, '@m');
+  return raw.some((e) => mine(e.cal)) ? raw.filter((e) => !e.cal || mine(e.cal)) : raw;
 }
 
 // "8:30am", "8:30", "13:00", "9pm" → minutes after midnight. ampm is the fallback for "8:30 to 9:30am".
@@ -61,22 +74,22 @@ async function readDay(day) {
     await w.loadURL(`https://calendar.google.com/calendar/u/0/r/day/${day.getFullYear()}/${day.getMonth() + 1}/${day.getDate()}`);
     const r = await w.webContents.executeJavaScript(`(${pageReadDay})()`, true);
     if (r.error) return r;
-    return { events: r.events.map((e) => parse(e, day)).filter(Boolean) };
+    // Discrete meetings only: no all-day events.
+    return { events: ownOnly(r.events, r.account).map((e) => parse(e, day)).filter((e) => e && !e.allDay) };
   } finally {
     w.destroy();
   }
 }
 
-// Today and tomorrow, sorted, cached for a few minutes.
+// Today's, sorted, cached for a few minutes.
 async function events(force) {
   if (!force && Date.now() - cache.at < KEEP_MS) return cache;
   if (loading) return loading;
   loading = (async () => {
     try {
-      const today = new Date(), tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-      const [a, b] = [await readDay(today), await readDay(tomorrow)];
+      const a = await readDay(new Date());
       if (a.error) cache = { at: Date.now(), events: [], error: a.error };
-      else cache = { at: Date.now(), events: [...a.events, ...(b.events || [])].sort((x, y) => x.start - y.start), error: null };
+      else cache = { at: Date.now(), events: a.events.sort((x, y) => x.start - y.start), error: null };
     } catch (e) {
       cache = { ...cache, at: Date.now(), error: e.message };
     }

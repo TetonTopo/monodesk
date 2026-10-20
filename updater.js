@@ -36,7 +36,21 @@ async function check() {
   return { current, latest, available: newer(latest, current) };
 }
 
-const dispatchDir = () => path.resolve(process.env.MONODESK_DISPATCH || path.join(DIR, '..', 'dispatch'));
+// Where Dispatch's files are: MONODESK_DISPATCH if set, a dispatch checkout next to Monodesk, or Monodesk's own dispatch/ folder.
+function dispatchDir() {
+  if (process.env.MONODESK_DISPATCH) return path.resolve(process.env.MONODESK_DISPATCH);
+  const sibling = path.join(DIR, '..', 'dispatch');
+  return fs.existsSync(path.join(sibling, 'index.html')) ? sibling : path.join(DIR, 'dispatch');
+}
+
+// Home's Claude corner shows Dispatch, so Monodesk fetches it from GitHub the first time if it isn't there.
+async function ensureDispatch() {
+  const dir = dispatchDir();
+  if (fs.existsSync(path.join(dir, 'index.html'))) return dir;
+  fs.mkdirSync(dir, { recursive: true });
+  await fromZip(DISPATCH_REPO, dir);
+  return dir;
+}
 
 async function hasGit(dir) {
   if (!fs.existsSync(path.join(dir, '.git'))) return false;
@@ -106,4 +120,4 @@ function ensureConfig() {
   if (!fs.existsSync(cfg) && fs.existsSync(example)) fs.copyFileSync(example, cfg);
 }
 
-module.exports = { state, version, check, update, ensureConfig };
+module.exports = { state, version, check, update, ensureConfig, dispatchDir, ensureDispatch };

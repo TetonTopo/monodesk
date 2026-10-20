@@ -20,15 +20,15 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 
 ## What's where
 
-**Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. The **Mono / Color** button on the right switches between grey and each app's own colours.
+**Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Calendar (Google Calendar, signed in with the Mail tab), then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. The **Mono / Color** button on the right switches between grey and each app's own colours.
 
-**Meetings:** today's meetings sit next to the date on Home ("University of Regina meeting · 8:30am"); in the other apps, the next one shows in grey beside the search button. They come from Google Calendar using the Mail tab's sign-in, so sign in to Gmail there first.
+**Meetings:** today's meetings on your own calendar (timed ones, not all-day events) sit next to the date on Home ("University of Regina meeting · 8:30am"); in the other apps, the next one shows in grey beside the search button. They come from Google Calendar using the Mail tab's sign-in, so sign in to Gmail there first.
 
 **Home:**
 - **WhatsApp:** unread chats on top, then your pinned chats. **Reply** sends a message without leaving Home, **Read** marks a chat read. Pin a chat by opening it in WhatsApp and pressing the pin on the panel; press again to unpin.
 - **Mail:** the latest important unread email in your Primary inbox (automated senders are skipped). **Mark as read** works while the Mail tab is showing your inbox.
 - **Notion:** a live copy of one page. Open a page in Notion and press the pin to show it here.
-- **Inbox triage:** **Run now** asks Claude to triage your inbox right in the panel; answer its questions there. **Open in Claude** continues the chat full size. The line at the bottom asks Claude anything.
+- **Claude:** with the **Dispatch** switch on, your three most recent Claude chats and Code sessions, like the Dispatch phone app: click one to read and reply, **New chat** and **All threads** in the fourth corner, and **Open** (on hover) to open it in Monodesk's Claude tab. **Run inbox triage** starts a triage there. With the switch off, it's the inbox-triage chat instead: **Run now**, **Open in Claude**, and a line that asks Claude anything.
 
 **Tabs:** Mail, Notion and Claude keep several tabs (Ctrl T new, Ctrl W close, middle-click closes). Co-work and Claude Code keep separate tabs, so switching never loses your place. Links to Notion, Gmail or Claude open in the right app's tab; other links open in your normal browser.
 
@@ -37,7 +37,7 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 | Action | Keys |
 | --- | --- |
 | Search and commands | Ctrl K |
-| Home, Mail, Notion, Co-work, Claude Code, WhatsApp | Ctrl 1–6 |
+| Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Calendar | Ctrl 1–7 |
 | In Claude: number recent chats / jump to one | Hold Alt / Alt 1–9 |
 | New tab / close tab | Ctrl T / Ctrl W |
 | Split view (two apps side by side) | Ctrl \ |

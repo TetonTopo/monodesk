@@ -2,7 +2,7 @@ const $ = (s, r = document) => r.querySelector(s);
 // Personal settings live in config.js.
 const CFG = window.MONODESK_CONFIG || {};
 let VER = {}; // this version and GitHub's newest, for the 𝕸 menu
-let CAL = { events: [], error: null, loaded: false }; // today's and tomorrow's meetings, from Google Calendar
+let CAL = { events: [], error: null, loaded: false }; // today's meetings, from Google Calendar
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const APPS = {
@@ -12,10 +12,12 @@ const APPS = {
   claude: { name: 'Claude', url: 'https://claude.ai/', tabs: true },
   // WhatsApp Web only allows one open window, so it gets no tabs.
   wa: { name: 'WhatsApp', url: 'https://web.whatsapp.com/', tabs: false },
+  // Google Calendar shares the Mail tab's Google sign-in.
+  cal: { name: 'Calendar', url: 'https://calendar.google.com/calendar/u/0/r', tabs: false, partition: 'mail' },
 };
-const ORDER = ['home', 'mail', 'notion', 'claude', 'wa'];
-// Ctrl 1–6. Claude takes two numbers: Co-work and Claude Code.
-const SLOTS = ['home', 'mail', 'notion', 'cowork', 'code', 'wa'];
+const ORDER = ['home', 'mail', 'notion', 'claude', 'wa', 'cal'];
+// Ctrl 1–7. Claude takes two numbers: Co-work and Claude Code.
+const SLOTS = ['home', 'mail', 'notion', 'cowork', 'code', 'wa', 'cal'];
 const SLOT_NAMES = { cowork: 'Co-work', code: 'Claude Code' };
 const goSlot = (s) => (s === 'cowork' || s === 'code' ? claudeMode(s) : go(s));
 const WEB = ORDER.filter((m) => APPS[m].url);
@@ -27,6 +29,7 @@ const P = {
   notion: '<path d="M4.5 5.2L16 4l3.5 3v12.6L8 20.3l-3.5-3.7z"/><path d="M4.5 5.2L8 8.4l11.5-1.4M8 8.4v11.9"/><path d="M10.8 17.4v-6.2l5.2 6.4v-6.8"/>',
   claude: '<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/>',
   wa: '<path d="M4 5h16v11H9l-5 4z"/>',
+  cal: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
   split: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
@@ -83,7 +86,7 @@ function createTab(m, url) {
   const tab = { wv, url: url || APPS[m].url, title: APPS[m].name };
   wv.className = 'view';
   wv.dataset.mod = m;
-  wv.setAttribute('partition', 'persist:' + m);
+  wv.setAttribute('partition', 'persist:' + (APPS[m].partition || m));
   wv.setAttribute('allowpopups', '');
   wv.setAttribute('src', tab.url);
   wv.addEventListener('focus', () => setFocus(S.panes.indexOf(m)));
@@ -253,25 +256,46 @@ function buildHome() {
         <div class="qh"><span class="ic">${I('notion')}</span><span class="sub" id="pin-name" style="color:var(--fg);font-weight:600"></span><span class="sp"></span><button class="lnk" data-act="pin" title="Show the page that's open in Notion here">${I('pin')}</button><button class="lnk" data-act="open-pin">Open</button></div>
         <div class="qb qweb" id="q-notion"></div>
       </section>
-      <section class="q" data-mod="claude">
-        <div class="qh"><span class="ic">${I('claude')}</span>Inbox triage<span class="sp"></span><button class="lnk" data-act="triage-run" title="Start a new inbox triage in this panel">Run now</button><button class="lnk" data-act="triage-open" title="Continue this chat full size in Claude">Open in Claude</button></div>
-        <div class="qb qweb" id="q-triage"></div>
-        <form class="askline" id="ask">
-          <input id="ask-in" placeholder="Ask Claude…" autocomplete="off">
-          <button class="icbtn" type="submit" title="Ask in Claude">${I('send')}</button>
-        </form>
-      </section>
+      <section class="q" data-mod="claude" id="q-claude"></section>
     </div>`;
 
+  buildNotionMini();
+  buildClaudePanel();
+  renderMeets();
+}
+
+/* The Claude corner: Dispatch (your recent Claude threads, like the phone app) or the inbox-triage chat. The Dispatch toggle switches. */
+const DISPATCH_URL = 'http://127.0.0.1:47800/?embed=monodesk';
+function buildClaudePanel() {
+  const box = $('#q-claude');
+  const on = store.get('homeDispatch', true);
+  const toggle = `<button class="lnk tgl ${on ? 'on' : ''}" data-act="dispatch-toggle" title="${on ? 'Show the inbox-triage chat here instead' : 'Show your recent Claude threads here (Dispatch)'}"><span class="sw"></span>Dispatch</button>`;
+  triage = null; // the triage chat's webview is rebuilt when it's shown again
+  if (on) {
+    box.innerHTML = `<div class="qh"><span class="ic">${I('claude')}</span>Claude<span class="sp"></span><button class="lnk" data-act="triage-run" title="Start an inbox triage and answer it here">Run inbox triage</button>${toggle}</div>
+      <div class="qb qweb dispatch"><iframe id="dispatch" src="${DISPATCH_URL}" title="Dispatch"></iframe></div>`;
+    return;
+  }
+  box.innerHTML = `<div class="qh"><span class="ic">${I('claude')}</span>Inbox triage<span class="sp"></span><button class="lnk" data-act="triage-run" title="Start a new inbox triage in this panel">Run now</button><button class="lnk" data-act="triage-open" title="Continue this chat full size in Claude">Open in Claude</button>${toggle}</div>
+    <div class="qb qweb" id="q-triage"></div>
+    <form class="askline" id="ask">
+      <input id="ask-in" placeholder="Ask Claude…" autocomplete="off">
+      <button class="icbtn" type="submit" title="Ask in Claude">${I('send')}</button>
+    </form>`;
   $('#ask').addEventListener('submit', (e) => {
     e.preventDefault();
     const q = $('#ask-in').value.trim();
     if (q) { $('#ask-in').value = ''; askClaude(q); }
   });
-  buildNotionMini();
   buildTriage();
-  renderMeets();
 }
+
+// Messages from Dispatch in the Claude corner: Open a thread in Monodesk's own Claude tab.
+addEventListener('message', (e) => {
+  const frame = $('#dispatch');
+  if (!frame || e.source !== frame.contentWindow || e.data?.from !== 'dispatch') return;
+  if (e.data.type === 'open' && /^https:\/\/claude\.ai\/(chat|code)\//.test(e.data.url || '')) claudeMode(e.data.kind === 'code' ? 'code' : 'cowork', e.data.url);
+});
 
 /* Inbox triage: a small claude.ai chat that runs the inbox-triage skill, so its questions can be answered right on Home. */
 const TRIAGE_PROMPT = CFG.triagePrompt || 'Triage my unread email: summarize what matters, then ask me yes or no on what to do with each one.';
@@ -300,6 +324,9 @@ function mountTriage(url) {
 }
 
 function runTriage() {
+  // With Dispatch showing, the triage starts as a new chat there and opens in the panel.
+  const frame = $('#dispatch');
+  if (frame) { frame.contentWindow.postMessage({ to: 'dispatch', type: 'new', kind: 'cowork', text: TRIAGE_PROMPT, title: 'Inbox triage' }, '*'); return; }
   triageSend = true;
   mountTriage('https://claude.ai/new?q=' + encodeURIComponent(TRIAGE_PROMPT));
 }
@@ -862,11 +889,9 @@ const clock = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric'
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 const meetTip = (e) => `${e.title}\n${e.allDay ? 'All day' : `${clock(e.start)} – ${clock(e.end)}`}`;
 
-// "University of Regina meeting · 8:30am", "… · now", "… · tomorrow 9:00am"
+// "University of Regina meeting · 8:30am", "… · now"
 function meetLabel(e, now = Date.now()) {
-  if (e.allDay) return `${e.title} · all day`;
-  if (e.start <= now) return `${e.title} · now`;
-  return `${e.title} · ${sameDay(e.start, now) ? '' : 'tomorrow '}${clock(e.start)}`;
+  return `${e.title} · ${e.start <= now ? 'now' : clock(e.start)}`;
 }
 
 function nextMeet(now = Date.now()) {
@@ -981,6 +1006,7 @@ document.addEventListener('click', (e) => {
     case 'wa-pin': pinWAChat(); break;
     case 'triage-run': runTriage(); break;
     case 'triage-open': openTriageInClaude(); break;
+    case 'dispatch-toggle': store.set('homeDispatch', !store.get('homeDispatch', true)); buildClaudePanel(); break;
     case 'open-pin': { const p = store.get('notionPin', null); p ? newTab('notion', p.url) : go('notion'); break; }
     case 'refresh-mail': refreshMail(); break;
     case 'mail-open': if (d.link) activeWv('mail').loadURL(d.link); go('mail'); break;
@@ -1005,7 +1031,7 @@ function shortcut(key) {
   else if (key === 'shift+e') openExport();
   else if (key === 't') newTab(APPS[cur]?.tabs ? cur : 'notion');
   else if (key === 'w') { if (APPS[cur]?.tabs) closeTab(cur, S.active[cur]); }
-  else if (/^[1-6]$/.test(key)) goSlot(SLOTS[+key - 1]);
+  else if (/^[1-7]$/.test(key)) goSlot(SLOTS[+key - 1]);
   else if (key.startsWith('alt')) claudeAlt(key);
 }
 
@@ -1066,7 +1092,7 @@ document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
   if (e.shiftKey && k === 'e') { e.preventDefault(); shortcut('shift+e'); }
-  else if (!e.shiftKey && ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6'].includes(k)) { e.preventDefault(); shortcut(k); }
+  else if (!e.shiftKey && ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7'].includes(k)) { e.preventDefault(); shortcut(k); }
 });
 
 /* ---------- start: reopen the tabs from last time ---------- */

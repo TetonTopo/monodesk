@@ -5,12 +5,12 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { BrowserWindow } = require('electron');
+const updater = require('./updater');
 
 const PORT = 47800;
 const HOST = '127.0.0.1';
 const ORIGIN = 'https://claude.ai';
-// Dispatch's files (github.com/TetonTopo/dispatch): the MONODESK_DISPATCH folder if set, else a dispatch checkout next to Monodesk.
-const PHONE_DIR = path.resolve(process.env.MONODESK_DISPATCH || path.join(__dirname, '..', 'dispatch'));
+// Dispatch's files (github.com/TetonTopo/dispatch): see updater.dispatchDir.
 const TOP = 3;
 const HISTORY = 40; // How many recent chats and Code sessions (each) the phone's list shows.
 const NEW_MODEL = 'Opus 5.5'; // New chats and Code sessions from the phone always start on this model.
@@ -413,8 +413,9 @@ function readBody(req) {
 function serveStatic(req, res) {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (p === '/') p = '/index.html';
-  const file = path.normalize(path.join(PHONE_DIR, p));
-  if (!file.startsWith(PHONE_DIR + path.sep)) return send(res, 404, 'Not found', 'text/plain');
+  const dir = updater.dispatchDir();
+  const file = path.normalize(path.join(dir, p));
+  if (!file.startsWith(dir + path.sep)) return send(res, 404, 'Not found', 'text/plain');
   fs.readFile(file, (err, buf) => (err ? send(res, 404, 'Not found', 'text/plain') : send(res, 200, buf, TYPES[path.extname(file)] || 'application/octet-stream')));
 }
 
@@ -467,6 +468,7 @@ function start() {
   server.on('error', (e) => console.error('Monodesk Phone bridge:', e.message));
   server.listen(PORT, HOST);
   schedule();
+  updater.ensureDispatch().catch((e) => console.error('Monodesk: could not download Dispatch:', e.message));
 }
 
 module.exports = { start, PORT };
