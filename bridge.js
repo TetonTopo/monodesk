@@ -442,9 +442,12 @@ async function xi(p, opts = {}) {
     signal: AbortSignal.timeout(60000),
   });
   if (r.ok) return r;
-  let detail = '';
-  try { const j = await r.json(); detail = j.detail?.status || j.detail?.message || (typeof j.detail === 'string' ? j.detail : ''); } catch {}
-  const why = /missing_permissions/.test(detail) ? 'the key in config.js needs more access on elevenlabs.io'
+  let detail = '', message = '';
+  try { const j = await r.json(); detail = j.detail?.status || j.detail?.message || (typeof j.detail === 'string' ? j.detail : ''); message = j.detail?.message || ''; } catch {}
+  // A key can have its own credit limit, separate from the account's ("…exceeds your API key (name) quota of 1000…").
+  const keyCap = /API key .*quota of (\d+)/i.exec(message);
+  const why = keyCap ? `the API key's own credit limit (${(+keyCap[1]).toLocaleString('en-US')}) is used up. Raise it at elevenlabs.io → Developers → API Keys`
+    : /missing_permissions/.test(detail) ? 'the key in config.js needs more access on elevenlabs.io'
     : /quota|credit/i.test(detail) ? 'out of credits'
     : r.status === 401 ? 'it didn’t accept the key in config.js'
     : r.status === 429 ? 'too busy right now'
