@@ -1,0 +1,32 @@
+/* Claude (claude.ai): its colours are HSL triplets (hue sat% light%) in --bg-*, --text-*, --border-*,
+   plus the newer --cds-* set. Set for light and dark mode alike, so Mono looks the same either way. */
+:root, [data-theme], [data-mode], .cds-root {
+  --bg-000: 40 47% 96.3% !important;    /* raised: composer, cards */
+  --bg-100: 37 39.4% 93.5% !important;  /* page */
+  --bg-200: 39 32% 89.6% !important;    /* sidebar */
+  --bg-300: 39 26.3% 85.1% !important;  /* hover */
+  --bg-400: 39 22% 80% !important;
+  --bg-500: 39 22% 80% !important;
+  --text-000: 40 5.7% 10.4% !important;
+  --text-100: 40 5.7% 10.4% !important;
+  --text-200: 37 8.1% 31.6% !important;
+  --text-300: 37 8.1% 31.6% !important;
+  --text-400: 38 7.7% 48.4% !important;
+  --text-500: 38 7.7% 48.4% !important;
+  --border-100: 40 5.7% 10.4% !important; /* Claude draws lines with these at low opacity */
+  --border-200: 40 5.7% 10.4% !important;
+  --border-300: 40 5.7% 10.4% !important;
+  --border-400: 40 5.7% 10.4% !important;
+  --cds-page-bg: var(--md-paper) !important;
+  --cds-surface-0: var(--md-paper) !important;
+  --cds-surface-1: var(--md-paper) !important;
+  --cds-surface-2: var(--md-raised) !important;
+  --cds-surface-3: var(--md-raised) !important;
+  --cds-surface-panel: var(--md-paper-2) !important;
+  --cds-surface-popover: var(--md-raised) !important;
+  --cds-text-primary: var(--md-ink) !important;
+  --cds-text-secondary: var(--md-ink-2) !important;
+  --cds-text-muted: var(--md-ink-3) !important;
+  --cds-border: rgba(28, 27, 25, .14) !important;
+  --cds-border-strong: rgba(28, 27, 25, .24) !important;
+}

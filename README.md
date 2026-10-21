@@ -16,12 +16,12 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 
 - **Sign in once** in each app (Mail, Notion, Co-work, WhatsApp). Sign-ins are saved on your own computer.
 - **WhatsApp:** scan the QR code with your phone (WhatsApp → Settings → Linked devices).
-- **Gmail:** Settings → Themes → Dark suits Color (Gmail has no "follow the system" theme, so in Mono it stays dark). For unread mail on top: Settings → See all settings → Inbox → Inbox type → **Unread first**.
-- Claude, Notion and WhatsApp: set their theme to "System" (or "Use device setting"). Then they are dark in Color and switch to light, redrawn on parchment, in Mono.
+- **Gmail:** Settings → Themes → Dark suits Color; in Mono, Monodesk recolours Gmail in paper and ink itself. For unread mail on top: Settings → See all settings → Inbox → Inbox type → **Unread first**.
+- Claude, Notion and WhatsApp: set their theme to "System" (or "Use device setting"), so they are dark in Color. In Mono, Monodesk recolours each app itself: the page, panels, text and lines turn to paper and ink, while emoji, photos and small coloured accents keep their colour. The colours are in the `themes` folder (one small file per app, plus `palette.css`); saving one changes the open apps at once.
 
 ## What's where
 
-**Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Calendar (Google Calendar, signed in with the Mail tab), then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. Monodesk opens in **Color** (each app's own colours, in its dark theme); the **Mono / Color** button on the right switches to Mono, a flat parchment look with dark-brown text that's easy on the eyes.
+**Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Calendar (Google Calendar, signed in with the Mail tab), then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. Monodesk opens in **Color** (each app's own colours, in its dark theme); the **Mono / Color** button on the right switches to Mono: a flat warm paper page with near-black text and clear lines, in Monodesk and inside the apps.
 
 **Meetings:** today's meetings on your own calendar (timed ones, not all-day events) sit next to the date on Home ("University of Regina meeting · 8:30am"); in the other apps, the next one shows in grey beside the search button. They come from Google Calendar using the Mail tab's sign-in, so sign in to Gmail there first.
 

@@ -1,0 +1,20 @@
+/* Gmail and Google Calendar: Google's Material 3 tokens (--gm3-sys-color-*). Gmail's own themes set them on
+   inner elements too, so they're set on all of them. First pass, made without a signed-in Gmail to look at. */
+:root, :root * {
+  --gm3-sys-color-background: var(--md-paper) !important;
+  --gm3-sys-color-surface: var(--md-paper) !important;
+  --gm3-sys-color-surface-bright: var(--md-raised) !important;
+  --gm3-sys-color-surface-container-lowest: var(--md-raised) !important;
+  --gm3-sys-color-surface-container-low: var(--md-paper) !important;
+  --gm3-sys-color-surface-container: var(--md-paper-2) !important;
+  --gm3-sys-color-surface-container-high: var(--md-paper-3) !important;
+  --gm3-sys-color-surface-container-highest: #dbd3c4 !important;
+  --gm3-sys-color-surface-dim: var(--md-paper-3) !important;
+  --gm3-sys-color-surface-variant: var(--md-paper-2) !important;
+  --gm3-sys-color-on-background: var(--md-ink) !important;
+  --gm3-sys-color-on-surface: var(--md-ink) !important;
+  --gm3-sys-color-on-surface-variant: var(--md-ink-2) !important;
+  --gm3-sys-color-outline: var(--md-rule-strong) !important;
+  --gm3-sys-color-outline-variant: var(--md-rule) !important;
+}
+body { background: var(--md-paper) !important; }

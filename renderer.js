@@ -194,7 +194,10 @@ function setMode(mode) {
   else delete document.documentElement.dataset.mode;
   window.md?.setMode(mode);
   topbar();
+  themeDispatch();
 }
+// Dispatch in the Claude corner recolours itself to match Mono.
+function themeDispatch() { $('#dispatch')?.contentWindow?.postMessage({ to: 'dispatch', type: 'theme', paper: S.mode !== 'color' }, '*'); }
 
 /* ---------- top bar ---------- */
 function topbar() {
@@ -294,6 +297,7 @@ addEventListener('message', (e) => {
   const frame = $('#dispatch');
   if (!frame || e.source !== frame.contentWindow || e.data?.from !== 'dispatch') return;
   if (e.data.type === 'open' && /^https:\/\/claude\.ai\/(chat|code)\//.test(e.data.url || '')) claudeMode(e.data.kind === 'code' ? 'code' : 'cowork', e.data.url);
+  if (e.data.type === 'ready') themeDispatch();
 });
 
 /* Inbox triage: a small claude.ai chat that runs the inbox-triage skill, so its questions can be answered right on Home. */

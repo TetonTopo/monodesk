@@ -1,0 +1,16 @@
+/* Mono's paper and ink, put into every app ahead of its own theme file below.
+   Only the page, panels, default text and lines change; emoji, photos and small coloured accents keep their colour.
+   Saving any file in this folder re-applies it to open apps at once. */
+:root {
+  --md-paper: #f5f0e8;     /* the page */
+  --md-paper-2: #ede7dc;   /* side panels, headers */
+  --md-paper-3: #e3dccf;   /* hover, selected, pressed */
+  --md-raised: #faf7f1;    /* boxes you type in, cards, menus */
+  --md-ink: #1c1b19;       /* text */
+  --md-ink-2: #57524a;     /* secondary text */
+  --md-ink-3: #857e72;     /* faint text, icons */
+  --md-ink-4: #a8a093;     /* disabled */
+  --md-rule: #d6cdbd;      /* lines */
+  --md-rule-strong: #b8ad99;
+  color-scheme: light !important;
+}

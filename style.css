@@ -1,6 +1,7 @@
 /* Monodesk shell. One top bar, apps below.
    Color (where Monodesk opens) = a dark shell, apps in their own colors, matching accents in the bar.
-   Mono = parchment: flat beige paper and dark-brown ink, clear brown borders, and every app redrawn in those two colors. */
+   Mono = paper and ink: a flat warm page, near-black text, clear lines, and the apps recoloured to match
+   (themes/*.css, put into each app by main.js). Keep these in step with themes/palette.css. */
 :root{
   --bg:#080808; --surface:#121212; --sunk:#1b1b1b; --sunk-2:#323232; --line:#232323; --line-2:#323232;
   --fg:#ecebe8; --muted:#9c9a95; --faint:#64635f;
@@ -10,9 +11,9 @@
   color-scheme:dark;
 }
 :root:not([data-mode="color"]){
-  --bg:#e6e2c6; --surface:#f0eed3; --sunk:#e6e1c5; --sunk-2:#d9d3b5; --line:#8a7154; --line-2:#2e2014;
-  --fg:#2e2014; --muted:#57432d; --faint:#7a6247;
-  --ink:#2e2014; --ink-fg:#f0eed3;
+  --bg:#ede7dc; --surface:#f5f0e8; --sunk:#ede7dc; --sunk-2:#e3dccf; --line:#d6cdbd; --line-2:#b8ad99;
+  --fg:#1c1b19; --muted:#57524a; --faint:#857e72;
+  --ink:#1c1b19; --ink-fg:#f5f0e8;
   color-scheme:light;
 }
 /* Flat: no shadows on paper. */
@@ -83,8 +84,6 @@ body.darwin .top{padding:0 10px 0 82px}
 .view.split{border-top:2px solid transparent}
 .view.split.focus{border-top-color:var(--ink)}
 .view.right{border-left:1px solid var(--line)}
-/* Mono: each app (in its light theme) is redrawn in parchment: white to paper, black to dark-brown ink, greys to tan. */
-:root:not([data-mode="color"]) webview{filter:grayscale(1) contrast(.77) sepia(1) saturate(.7) hue-rotate(-8deg) brightness(.94)}
 
 /* home: four live panels */
 .home{display:flex; flex-direction:column; gap:12px; padding:16px 18px 18px; overflow:hidden}
@@ -115,8 +114,6 @@ body.darwin .top{padding:0 10px 0 82px}
 /* The Claude corner as Dispatch (iframe from Monodesk's own server), and its on/off switch. */
 .qweb.dispatch{background:var(--surface)}
 .qweb iframe{flex:1; width:100%; height:100%; border:0; display:block}
-/* Dispatch is dark, so on paper it's turned over first: light page, dark words. */
-:root:not([data-mode="color"]) .qweb iframe{filter:invert(1) brightness(1.1) grayscale(1) contrast(.77) sepia(1) saturate(.7) hue-rotate(-8deg) brightness(.94)}
 .lnk.tgl{display:inline-flex; align-items:center; gap:6px}
 .lnk.tgl .sw{position:relative; width:22px; height:12px; border-radius:6px; background:var(--sunk-2); transition:background .15s}
 .lnk.tgl .sw::after{content:""; position:absolute; top:2px; left:2px; width:8px; height:8px; border-radius:50%; background:var(--muted); transition:transform .15s, background .15s}

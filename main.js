@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, clipboard, shell, nativeTheme, session } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, clipboard, shell, nativeTheme, session, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
@@ -190,12 +190,52 @@ function watchSignIn(child, mod) {
   });
 }
 
+// Mono: paper and ink inside the apps themselves. Each app's own colour settings are overridden by a small
+// stylesheet from themes/ (palette.css first), so the page, panels, text and lines change while emoji, photos
+// and small accents keep their colour. Apps without a theme file are left as they are.
+const THEME_DIR = path.join(__dirname, 'themes');
+const THEMES = [[/(^|\.)claude\.ai$/, 'claude'], [/^web\.whatsapp\.com$/, 'whatsapp'], [/(^|\.)notion\.(so|site|com)$/, 'notion'], [/^(mail|calendar)\.google\.com$/, 'google']];
+let mono = false;
+const themed = new Map(); // app view id → { host, has }: the site its theme went in for, and whether there is one
+function themeCss(url) {
+  let host = '';
+  try { host = new URL(url).hostname; } catch { return null; }
+  const name = THEMES.find(([re]) => re.test(host))?.[1];
+  if (!name) return null;
+  try { return ['palette', name].map((f) => fs.readFileSync(path.join(THEME_DIR, f + '.css'), 'utf8')).join('\n'); } catch { return null; }
+}
+// Electron can't take an inserted stylesheet out again, so each page gets its theme once, written to apply only
+// while <html data-md-mono> is set; switching Mono on and off just sets or clears that attribute.
+const gate = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/([^{}]+)\{/g, (_m, sels) =>
+  sels.split(',').map((s) => s.trim()).filter(Boolean).map((s) => `:root[data-md-mono]:is(${s}), :root[data-md-mono] :is(${s})`).join(', ') + ' {');
+async function applyTheme(c, fresh) {
+  if (c.isDestroyed()) return;
+  const url = c.getURL();
+  let host = '';
+  try { host = new URL(url).hostname; } catch {}
+  const t = themed.get(c.id);
+  if (fresh || !t || t.host !== host) {
+    const css = themeCss(url);
+    themed.set(c.id, { host, has: !!css });
+    // "user" stylesheets outrank the page's own, even its !important rules.
+    if (css) await c.insertCSS(gate(css), { cssOrigin: 'user' }).catch(() => {});
+  }
+  if (!themed.get(c.id)?.has || c.isDestroyed()) return;
+  await c.executeJavaScript(`document.documentElement.toggleAttribute('data-md-mono', ${mono}); true`).catch(() => {});
+}
+const appViews = () => webContents.getAllWebContents().filter((c) => c.getType() === 'webview');
+let themeTimer;
+try { fs.watch(THEME_DIR, () => { clearTimeout(themeTimer); themeTimer = setTimeout(() => appViews().forEach((c) => applyTheme(c, true)), 300); }); } catch {}
+
 app.on('web-contents-created', (_event, contents) => {
   contextMenu(contents);
   // A page's "leave this page?" check never stops Monodesk from quitting or restarting.
   contents.on('will-prevent-unload', (e) => e.preventDefault());
   if (contents.getType() !== 'webview') return;
 
+  const id = contents.id;
+  contents.on('dom-ready', () => applyTheme(contents, true)); // a new page: its theme goes in again
+  contents.on('destroyed', () => themed.delete(id));
   contents.on('did-create-window', (child) => watchSignIn(child, appOf(contents)));
 
   contents.setWindowOpenHandler(({ url }) => {
@@ -278,8 +318,10 @@ ipcMain.handle('copy', (_e, text) => {
 });
 
 ipcMain.handle('mode', (_e, mode) => {
-  // Color asks every app for its dark theme; Mono asks for the light one, which the shell redraws on parchment.
+  // Color asks every app for its dark theme; Mono asks for the light one, then recolours it in paper and ink.
   nativeTheme.themeSource = mode === 'color' ? 'dark' : 'light';
+  mono = mode !== 'color';
+  appViews().forEach((c) => applyTheme(c));
   return true;
 });
 

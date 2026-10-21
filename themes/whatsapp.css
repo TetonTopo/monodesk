@@ -1,0 +1,43 @@
+/* WhatsApp Web: its colours are --WDS-* tokens, set on several inner elements, so they're set on all of them. */
+:root, :root * {
+  --WDS-background-wash-plain: var(--md-paper) !important;
+  --WDS-background-wash-plain-RGB: 245, 240, 232 !important;
+  --WDS-background-wash-inset: var(--md-paper-2) !important;
+  --WDS-background-wash-inset-RGB: 237, 231, 220 !important;
+  --WDS-background-elevated-wash-plain: var(--md-raised) !important;
+  --WDS-background-elevated-wash-plain-RGB: 250, 247, 241 !important;
+  --WDS-background-elevated-wash-inset: var(--md-paper-2) !important;
+  --WDS-background-elevated-wash-inset-RGB: 237, 231, 220 !important;
+  --WDS-surface-default: var(--md-paper) !important;
+  --WDS-surface-default-RGB: 245, 240, 232 !important;
+  --WDS-surface-elevated-default: var(--md-raised) !important;
+  --WDS-surface-elevated-default-RGB: 250, 247, 241 !important;
+  --WDS-surface-emphasized: var(--md-paper-2) !important;
+  --WDS-surface-emphasized-RGB: 237, 231, 220 !important;
+  --WDS-surface-elevated-emphasized: var(--md-paper-2) !important;
+  --WDS-surface-elevated-emphasized-RGB: 237, 231, 220 !important;
+  --WDS-surface-highlight: rgba(28, 27, 25, .06) !important;
+  --WDS-surface-pressed: rgba(28, 27, 25, .12) !important;
+  --WDS-components-active-list-row: rgba(28, 27, 25, .07) !important;
+  --WDS-components-surface-nav-bar: var(--md-paper-2) !important;
+  --WDS-components-surface-nav-bar-RGB: 237, 231, 220 !important;
+  --WDS-systems-chat-surface-composer: var(--md-raised) !important;
+  --WDS-systems-chat-surface-tray: var(--md-paper-2) !important;
+  --WDS-systems-chat-background-wallpaper: var(--md-paper-2) !important;
+  --WDS-systems-chat-background-wallpaper-RGB: 237, 231, 220 !important;
+  --WDS-systems-bubble-surface-incoming: var(--md-raised) !important;
+  --WDS-systems-bubble-surface-incoming-RGB: 250, 247, 241 !important;
+  --WDS-systems-bubble-surface-outgoing: var(--md-paper-3) !important;
+  --WDS-systems-bubble-surface-outgoing-RGB: 227, 220, 207 !important;
+  --WDS-content-default: var(--md-ink) !important;
+  --WDS-content-default-RGB: 28, 27, 25 !important;
+  --WDS-content-action-default: var(--md-ink) !important;
+  --WDS-content-action-default-RGB: 28, 27, 25 !important;
+  --WDS-content-deemphasized: var(--md-ink-2) !important;
+  --WDS-content-deemphasized-RGB: 87, 82, 74 !important;
+  --WDS-content-disabled: var(--md-ink-4) !important;
+  --WDS-lines-divider: rgba(28, 27, 25, .14) !important;
+  --WDS-lines-outline-deemphasized: var(--md-rule) !important;
+  --WDS-lines-outline-default: var(--md-rule-strong) !important;
+}
+body { background: var(--md-paper) !important; }

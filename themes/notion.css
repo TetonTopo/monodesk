@@ -1,0 +1,30 @@
+/* Notion: its colours are --c-* tokens on :root and the theme class (light or dark). */
+:root, .notion-light-theme, .notion-dark-theme {
+  --c-bacPri: var(--md-paper) !important;
+  --c-bacSec: var(--md-paper-2) !important;   /* sidebar */
+  --c-bacTer: var(--md-paper-3) !important;
+  --c-bacEle: var(--md-raised) !important;     /* menus, popups */
+  --c-bacInt: var(--md-paper-2) !important;
+  --ca-bacSecTra: rgba(28, 27, 25, .03) !important;
+  --ca-bacTerTra: rgba(28, 27, 25, .07) !important;
+  --ca-bacIntTra: rgba(28, 27, 25, .05) !important;
+  --c-whiButBac: var(--md-raised) !important;
+  --c-whiButHovBac: var(--md-paper-2) !important;
+  --c-whiButPreBac: var(--md-paper-3) !important;
+  --c-texPri: var(--md-ink) !important;
+  --c-texSec: var(--md-ink-2) !important;
+  --c-texTer: var(--md-ink-3) !important;
+  --c-texDis: var(--md-ink-4) !important;
+  --c-texAccPri: var(--md-ink-2) !important;
+  --c-icoPri: var(--md-ink) !important;
+  --c-icoSec: var(--md-ink-3) !important;
+  --c-icoTer: var(--md-ink-4) !important;
+  --c-icoAccPri: var(--md-ink-3) !important;
+  --c-borPri: var(--md-rule) !important;
+  --c-borSec: var(--md-paper-3) !important;
+  --c-borStr: var(--md-rule-strong) !important;
+  --ca-borPriTra: rgba(28, 27, 25, .13) !important;
+  --ca-borSecTra: rgba(28, 27, 25, .08) !important;
+  --ca-borStrTra: rgba(28, 27, 25, .22) !important;
+}
+body, .notion-app-inner, .notion-cursor-listener, .notion-frame { background: var(--md-paper) !important; }
