@@ -396,6 +396,149 @@ async function environments() {
   return envCache;
 }
 
+/* ---------- ElevenLabs read-aloud ---------- */
+// Dispatch's speaker asks for MP3s here. The API key lives only in this PC's config.js (elevenLabsKey), never in a
+// repo, and never goes to the phone. With no key, /api/voices says so and Dispatch uses the phone's own voice.
+const XI = 'https://api.elevenlabs.io';
+// Credits per character on ElevenLabs' self-serve plans. limit: the most one request takes; longer text goes in parts.
+const MODELS = {
+  eleven_flash_v2_5: { name: 'Fast', about: 'Flash v2.5', per: 0.5, limit: 4500 },
+  eleven_multilingual_v2: { name: 'Best', about: 'Multilingual v2', per: 1, limit: 4500 },
+  eleven_v3: { name: 'Expressive', about: 'Eleven v3', per: 1, limit: 2800 },
+};
+const DEFAULT_MODEL = 'eleven_flash_v2_5';
+const MATILDA = 'XrExE9yKIg1WjnnlVkGX'; // ElevenLabs' own Matilda, the last resort when no Australian voice is found
+
+// config.js is browser code (window.MONODESK_CONFIG = …), so it's run in an empty sandbox. Re-read when it changes.
+let cfg = { at: 0, val: {} };
+function config() {
+  const file = path.join(__dirname, 'config.js');
+  try {
+    const at = fs.statSync(file).mtimeMs;
+    if (at !== cfg.at) {
+      const box = { window: {} };
+      require('vm').runInNewContext(fs.readFileSync(file, 'utf8'), box, { timeout: 500 });
+      cfg = { at, val: box.window.MONODESK_CONFIG || {} };
+    }
+  } catch { cfg = { at: 0, val: {} }; }
+  return cfg.val;
+}
+const xiKey = () => String(config().elevenLabsKey || process.env.ELEVENLABS_API_KEY || '').trim();
+
+async function xi(p, opts = {}) {
+  const r = await fetch(XI + p, {
+    ...opts,
+    headers: { 'xi-api-key': xiKey(), ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+    signal: AbortSignal.timeout(60000),
+  });
+  if (r.ok) return r;
+  let detail = '';
+  try { const j = await r.json(); detail = j.detail?.status || j.detail?.message || (typeof j.detail === 'string' ? j.detail : ''); } catch {}
+  const why = /quota|credit/i.test(detail) ? 'out of credits'
+    : r.status === 401 ? 'it didn’t accept the key in config.js'
+    : r.status === 429 ? 'too busy right now'
+    : detail || 'error ' + r.status;
+  const e = new Error('ElevenLabs: ' + why);
+  e.status = r.status;
+  throw e;
+}
+
+// Your voices, plus Australian ones from the shared library, plus your credit balance. Kept for 10 minutes.
+let xiCache = { at: 0, key: '', val: null };
+async function xiVoices(fresh) {
+  const key = xiKey();
+  if (!key) return { enabled: false };
+  if (!fresh && xiCache.val && xiCache.key === key && Date.now() - xiCache.at < 10 * 6e4) return xiCache.val;
+  const [mine, aus, sub] = await Promise.allSettled([
+    xi('/v2/voices?page_size=100').then((r) => r.json()),
+    xi('/v1/shared-voices?language=en&accent=australian&page_size=40&sort=trending').then((r) => r.json()),
+    xi('/v1/user/subscription').then((r) => r.json()),
+  ]);
+  if (mine.status === 'rejected') throw mine.reason;
+  const voices = (mine.value.voices || []).map((v) => ({
+    id: v.voice_id, name: v.name, accent: v.labels?.accent || '', gender: v.labels?.gender || '',
+    about: v.labels?.descriptive || v.labels?.description || v.labels?.use_case || '', preview: v.preview_url || '', mine: true,
+  }));
+  const have = new Set(voices.map((v) => v.id));
+  // Library voices whose owners charge more than the normal rate are left out.
+  const library = aus.status === 'fulfilled' ? (aus.value.voices || []).filter((v) => !have.has(v.voice_id) && !(v.rate > 1) && !v.fiat_rate).map((v) => ({
+    id: v.voice_id, owner: v.public_owner_id, name: v.name, accent: v.accent || 'australian', gender: v.gender || '',
+    about: v.descriptive || v.use_case || '', preview: v.preview_url || '', mine: false,
+  })) : [];
+  const aussie = (v) => /austral/i.test(v.accent);
+  const female = (v) => /female|woman/i.test(v.gender);
+  // Default: config.js's elevenLabsVoice, else an Australian woman you already have, else one from the library
+  // (added to your voices the first time it reads), else ElevenLabs' Matilda.
+  const named = String(config().elevenLabsVoice || '');
+  const def = voices.find((v) => v.id === named) || voices.find((v) => aussie(v) && female(v)) || library.find(female)
+    || voices.find(aussie) || library[0] || voices.find((v) => v.id === MATILDA) || voices[0] || { id: MATILDA, mine: true };
+  const s = sub.status === 'fulfilled' ? sub.value : null;
+  const val = {
+    enabled: true,
+    voices, library,
+    default: { id: def.id, owner: def.mine === false ? def.owner : undefined, name: def.name || 'Matilda' },
+    models: Object.entries(MODELS).map(([id, m]) => ({ id, name: m.name, about: m.about, per: m.per })),
+    model: MODELS[config().elevenLabsModel] ? config().elevenLabsModel : DEFAULT_MODEL,
+    credits: s ? { used: s.character_count, limit: s.character_limit, reset: (s.next_character_count_reset_unix || 0) * 1000 } : null,
+  };
+  xiCache = { at: Date.now(), key, val };
+  return val;
+}
+
+// Long text in parts of at most n characters, split between lines, then sentences.
+function parts(text, n) {
+  const out = [];
+  let cur = '';
+  for (const piece of text.split(/(?<=\n)|(?<=[.!?])\s+/)) {
+    if (cur && (cur + ' ' + piece).length > n) { out.push(cur.trim()); cur = ''; }
+    cur += (cur && !cur.endsWith('\n') ? ' ' : '') + piece;
+    while (cur.length > n) { out.push(cur.slice(0, n)); cur = cur.slice(n); }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+// The same reply in the same voice and model is only paid for once (until Monodesk restarts).
+const audioCache = new Map();
+async function xiSpeak({ text, voice, owner, model, pause }) {
+  if (!xiKey()) throw Object.assign(new Error('No ElevenLabs key in config.js'), { status: 409 });
+  text = String(text || '').replace(/\r/g, '').trim();
+  if (!text) throw Object.assign(new Error('Nothing to read'), { status: 400 });
+  const info = await xiVoices();
+  model = MODELS[model] ? model : info.model;
+  const m = MODELS[model];
+  if (!voice) ({ id: voice, owner } = info.default);
+  voice = String(voice);
+  // A library voice is added to your voices once, the first time you use it.
+  if (owner && !info.voices.some((v) => v.id === voice)) {
+    const v = info.library.find((x) => x.id === voice);
+    const r = await xi(`/v1/voices/add/${encodeURIComponent(owner)}/${encodeURIComponent(voice)}`, { method: 'POST', body: JSON.stringify({ new_name: v?.name || 'Dispatch voice' }) });
+    voice = (await r.json()).voice_id || voice;
+    xiCache.at = 0;
+  }
+  // The sentence pause becomes a short break between lines (v3 has no breaks).
+  const ms = Math.min(+pause || 0, 3000);
+  const said = ms > 0 && model !== 'eleven_v3' ? text.split('\n').join(` <break time="${(ms / 1000).toFixed(2)}s" />\n`) : text;
+  const key = require('crypto').createHash('sha1').update([model, voice, said].join('\0')).digest('hex');
+  if (audioCache.has(key)) return { audio: audioCache.get(key), credits: 0, cached: true, voice };
+  const chunks = parts(said, m.limit);
+  const bufs = [];
+  let credits = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const body = { text: chunks[i], model_id: model, voice_settings: { stability: 0.5, similarity_boost: 0.75 } };
+    if (model !== 'eleven_v3') { if (i) body.previous_text = chunks[i - 1].slice(-400); if (i < chunks.length - 1) body.next_text = chunks[i + 1].slice(0, 400); }
+    const r = await xi(`/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`, { method: 'POST', body: JSON.stringify(body) });
+    const cost = r.headers.get('character-cost');
+    credits += cost != null && Number.isFinite(+cost) ? +cost : Math.ceil(chunks[i].length * m.per);
+    bufs.push(Buffer.from(await r.arrayBuffer()));
+  }
+  const audio = Buffer.concat(bufs);
+  audioCache.set(key, audio);
+  while (audioCache.size > 40) audioCache.delete(audioCache.keys().next().value);
+  if (xiCache.val?.credits) xiCache.val.credits.used += credits;
+  return { audio, credits, cached: false, voice };
+}
+
 /* ---------- HTTP ---------- */
 function send(res, code, body, type = 'application/json; charset=utf-8') {
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -455,9 +598,16 @@ async function handle(req, res) {
       if (!['cowork', 'code'].includes(kind) || !String(text || '').trim()) return send(res, 400, { error: 'Pick Co-work or Code and say something' });
       return send(res, 200, await startThread(kind, String(text), env ? String(env) : ''));
     }
+    if (req.method === 'GET' && url.pathname === '/api/voices') return send(res, 200, await xiVoices(url.searchParams.has('now')));
+    if (req.method === 'POST' && url.pathname === '/api/speak') {
+      const r = await xiSpeak(await readBody(req));
+      const left = xiCache.val?.credits ? xiCache.val.credits.limit - xiCache.val.credits.used : '';
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': r.audio.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Credits': r.credits, 'X-Credits-Left': left, 'X-Cached': r.cached ? '1' : '0', 'X-Voice': r.voice });
+      return res.end(r.audio);
+    }
     send(res, 404, { error: 'Not found' });
   } catch (e) {
-    send(res, 500, { error: e.message || 'Something went wrong' });
+    send(res, e.status >= 400 && e.status < 500 ? (e.status === 401 ? 502 : e.status) : 500, { error: e.message || 'Something went wrong' });
   }
 }
 
