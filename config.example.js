@@ -18,4 +18,6 @@ window.MONODESK_CONFIG = {
   // Optional: a voice id to start on, and the model ('eleven_flash_v2_5' = half the credits, 'eleven_multilingual_v2', 'eleven_v3').
   elevenLabsVoice: '',
   elevenLabsModel: 'eleven_flash_v2_5',
+  // Dispatch lists only the voices in this ElevenLabs collection (My Voices → Collections), if it exists.
+  elevenLabsCollection: 'dispatch',
 };

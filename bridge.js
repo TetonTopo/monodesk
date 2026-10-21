@@ -460,9 +460,14 @@ async function xiVoices(fresh) {
   const key = xiKey();
   if (!key) return { enabled: false };
   if (!fresh && xiCache.val && xiCache.key === key && Date.now() - xiCache.at < 10 * 6e4) return xiCache.val;
+  // An ElevenLabs collection named like config.js's elevenLabsCollection (default "dispatch") is the whole list when
+  // it exists; otherwise all your voices, plus Australian ones from the shared library.
+  const want = String(config().elevenLabsCollection ?? 'dispatch').trim().toLowerCase();
+  const coll = want ? await xi('/v1/voices/collections').then((r) => r.json())
+    .then((j) => (j.collections || []).find((c) => String(c.title || '').trim().toLowerCase() === want), () => null) : null;
   const [mine, aus, sub] = await Promise.allSettled([
-    xi('/v2/voices?page_size=100').then((r) => r.json()),
-    xi('/v1/shared-voices?language=en&accent=australian&page_size=40&sort=trending').then((r) => r.json()),
+    xi('/v2/voices?page_size=100' + (coll ? '&collection_id=' + encodeURIComponent(coll.collection_id) : '')).then((r) => r.json()),
+    coll ? Promise.resolve({ voices: [] }) : xi('/v1/shared-voices?language=en&accent=australian&page_size=40&sort=trending').then((r) => r.json()),
     xi('/v1/user/subscription').then((r) => r.json()),
   ]);
   // A key without the Voices permission can still make speech, in ElevenLabs' built-in voices.
@@ -489,6 +494,7 @@ async function xiVoices(fresh) {
   const val = {
     enabled: true,
     limited, // true: the key can't list voices or read credits, so Dispatch says how to give it more access
+    collection: coll ? coll.title : null,
     voices, library,
     default: { id: def.id, owner: def.mine === false ? def.owner : undefined, name: def.name || 'Matilda' },
     models: Object.entries(MODELS).map(([id, m]) => ({ id, name: m.name, about: m.about, per: m.per })),

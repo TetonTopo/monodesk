@@ -50,7 +50,7 @@ Open **config.js** in Notepad (Monodesk makes it from `config.example.js` the fi
 - `todoBoard`: link to your Notion to-do board (a database shown as a board). The **+** adds a card to it. Leave it `''` to hide the +.
 - `todoColumn`: which column the + adds to, for example `'Soon'`. Notion hides empty columns, so keep at least one card in it.
 - `triagePrompt`: what **Run now** sends to Claude. If you have a Claude skill for this, name it here (for example `'Run my inbox triage'`).
-- `elevenLabsKey`: your ElevenLabs API key, so Dispatch reads replies in an ElevenLabs voice (make one at elevenlabs.io → Developers → API Keys, with access to Text to Speech, Voices and User). It stays in this file on this PC. Monodesk makes the audio and only the audio goes to the phone. Leave it `''` to use the phone's own voice. `elevenLabsVoice` (a voice id) and `elevenLabsModel` are optional starting choices. You pick both in Dispatch.
+- `elevenLabsKey`: your ElevenLabs API key, so Dispatch reads replies in an ElevenLabs voice (make one at elevenlabs.io → Developers → API Keys, with access to Text to Speech, Voices and User). It stays in this file on this PC. Monodesk makes the audio and only the audio goes to the phone. Leave it `''` to use the phone's own voice. `elevenLabsVoice` (a voice id) and `elevenLabsModel` are optional starting choices. `elevenLabsCollection` (default `'dispatch'`) names an ElevenLabs voice collection: when it exists, Dispatch lists only its voices. You pick both in Dispatch.
 
 Save the file and Monodesk reloads by itself. Changes to the other files (style.css, renderer.js, main.js) also apply live while Monodesk is open, so you can ask Claude Code to change things and watch them happen.
 
