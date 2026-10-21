@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('md', {
   onNewTab: (fn) => ipcRenderer.on('new-tab', (_e, info) => fn(info)),
   onCssChanged: (fn) => ipcRenderer.on('css-changed', () => fn()),
   onToast: (fn) => ipcRenderer.on('toast', (_e, msg) => fn(msg)),
+  onSignedIn: (fn) => ipcRenderer.on('signed-in', (_e, info) => fn(info)),
   platform: process.platform,
 });

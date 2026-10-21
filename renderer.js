@@ -1094,6 +1094,15 @@ window.md?.onNewTab(({ mod, url }) => {
   else newTab(mod, url);
 });
 window.md?.onToast(toast);
+// A sign-in window finished: every view of that app picks up the sign-in, and the app shows where it landed.
+window.md?.onSignedIn(({ mod, url }) => {
+  if (!APPS[mod]) return;
+  const part = 'persist:' + (APPS[mod].partition || mod);
+  document.querySelectorAll(`webview[partition="${part}"]`).forEach((w) => { try { w.reload(); } catch {} });
+  if (url) activeWv(mod).loadURL(url);
+  go(mod);
+  toast(`Signed in to ${APPS[mod].name}`);
+});
 window.md?.onCssChanged(() => { $('#shell-css').href = 'style.css?v=' + Date.now(); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') return closeLayer();

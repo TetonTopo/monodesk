@@ -5,9 +5,10 @@ Gmail, Notion, Claude and WhatsApp in one quiet window, with a Home screen that 
 ## Install (Windows, about 5 minutes)
 
 1. Install **Node.js LTS** from https://nodejs.org (the big green button; accept the defaults).
-2. Download **https://github.com/TetonTopo/monodesk/archive/refs/heads/main.zip**, unzip it, and move the `monodesk-main` folder somewhere permanent, for example `Documentsmonodesk`. Don't run it from inside the zip or from Downloads you clean out. (If you use git: `git clone https://github.com/TetonTopo/monodesk` works too.)
+2. Download **https://github.com/TetonTopo/monodesk/archive/refs/heads/main.zip**, unzip it, and move the `monodesk-main` folder somewhere permanent, for example `Documents\monodesk`. Don't run it from inside the zip or from Downloads you clean out. (If you use git: `git clone https://github.com/TetonTopo/monodesk` works too.)
 3. Double-click **Start Monodesk.cmd**. The first time it downloads Electron (about 100 MB, a minute or two), then Monodesk opens and the console window closes on its own.
 4. From then on, open it from the **Monodesk** shortcut it makes in the folder and in the Start menu. To keep it on the taskbar, right-click Monodesk there and pick **Pin to taskbar**.
+5. Closing the window doesn't quit Monodesk: it keeps running in the tray (the icons by the clock), so your apps stay signed in and Dispatch keeps working. Click the tray icon to bring it back, or right-click it for **Start with Windows** and **Quit Monodesk**. Starting Monodesk again just brings back the one that's running.
 
 On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` inside the folder.
 

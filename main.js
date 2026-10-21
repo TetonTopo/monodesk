@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, clipboard, shell, nativeTheme, session } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, clipboard, shell, nativeTheme, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
@@ -25,10 +25,48 @@ const APP_ID = 'com.monodesk.app';
 const LAUNCH_ARGS = `"${__dirname}"`;
 if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
 
-let win;
+// One Monodesk at a time: starting it again (the shortcut, Start Monodesk.cmd) brings back the one that's running.
+// Two copies sharing the same sign-ins would sign each other out.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => showWin());
+
+// Closing the window hides Monodesk to the tray, so the apps stay signed in and Dispatch keeps working.
+// Quit from the tray icon's menu. "Start with Windows" starts it in the tray at sign-in.
+const LOGIN = { path: process.execPath, args: [__dirname, '--background'] };
+let win, tray, quitting = false, hinted = false;
+app.on('before-quit', () => { quitting = true; });
+
+function showWin() {
+  if (!app.isReady()) return;
+  if (!win || win.isDestroyed()) createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function makeTray() {
+  tray = new Tray(ICON);
+  tray.setToolTip('Monodesk');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Monodesk', click: showWin },
+    { label: process.platform === 'darwin' ? 'Open at login' : 'Start with Windows', type: 'checkbox', checked: app.getLoginItemSettings(LOGIN).openAtLogin, click: (item) => app.setLoginItemSettings({ ...LOGIN, openAtLogin: item.checked }) },
+    { type: 'separator' },
+    { label: 'Quit Monodesk', click: () => { quitting = true; app.quit(); } },
+  ]));
+  tray.on('click', showWin);
+}
+
+// Before a restart (an update, a saved change): write every app's cookies and site data to disk first.
+// Quitting at once otherwise drops a fresh sign-in, and Notion or WhatsApp asks again.
+async function saveSessions() {
+  const all = [session.defaultSession, ...APPS.map((m) => session.fromPartition('persist:' + m))];
+  await Promise.all(all.map(async (s) => { try { s.flushStorageData(); await s.cookies.flushStore(); } catch {} }));
+}
+updater.beforeExit(saveSessions);
 
 function createWindow() {
   win = new BrowserWindow({
+    show: !(process.argv.includes('--background') && !tray),
     width: 1440,
     height: 920,
     minWidth: 760,
@@ -50,6 +88,15 @@ function createWindow() {
     win.setAppDetails({ appId: APP_ID, appIconPath: ICON, relaunchCommand: `"${process.execPath}" ${LAUNCH_ARGS}`, relaunchDisplayName: 'Monodesk' });
   }
   win.loadFile('index.html');
+  win.on('close', (e) => {
+    if (quitting || !tray) return;
+    e.preventDefault();
+    win.hide();
+    if (!hinted && process.platform === 'win32') {
+      hinted = true;
+      tray.displayBalloon({ iconType: 'info', title: 'Monodesk is still running', content: 'It stays in the tray to keep you signed in. Right-click its icon to quit.' });
+    }
+  });
 }
 
 // Keeps a Monodesk shortcut in the Start menu and in this folder. Either one starts Monodesk with no console window and can be pinned.
@@ -120,14 +167,48 @@ function contextMenu(contents) {
   });
 }
 
+// A sign-in window is done once it reaches the app itself (Gmail's inbox, a Notion page), or once it sits empty
+// on a callback page that should have closed itself. Then it closes and the app's tab reloads, signed in.
+function watchSignIn(child, mod) {
+  const own = mod === 'mail' ? /^(mail|calendar)\.google\.com$/ : OWN_HOSTS[mod];
+  if (!own) return;
+  child.webContents.on('did-finish-load', async () => {
+    const url = child.webContents.getURL();
+    let u;
+    try { u = new URL(url); } catch { return; }
+    if (!own.test(u.hostname)) return;
+    // First give the page time to hand the sign-in to the tab and close itself, as it's meant to.
+    await new Promise((r) => setTimeout(r, 3000));
+    if (child.isDestroyed() || child.webContents.getURL() !== url) return;
+    const auth = AUTH_PATH.test(u.pathname + u.search);
+    if (auth) {
+      const empty = await child.webContents.executeJavaScript('!document.body || document.body.innerText.trim().length < 3').catch(() => false);
+      if (!empty || child.isDestroyed()) return;
+    }
+    child.close();
+    win?.webContents.send('signed-in', { mod, url: auth ? null : url });
+  });
+}
+
 app.on('web-contents-created', (_event, contents) => {
   contextMenu(contents);
+  // A page's "leave this page?" check never stops Monodesk from quitting or restarting.
+  contents.on('will-prevent-unload', (e) => e.preventDefault());
   if (contents.getType() !== 'webview') return;
+
+  contents.on('did-create-window', (child) => watchSignIn(child, appOf(contents)));
 
   contents.setWindowOpenHandler(({ url }) => {
     let host = '';
     try { host = new URL(url).hostname; } catch {}
     const mod = appOf(contents);
+    // Signing in from Google's signed-out pages (the Gmail and Calendar product pages) happens right in the tab.
+    let from = '';
+    try { from = new URL(contents.getURL()).hostname; } catch {}
+    if (mod === 'mail' && /(^|\.)accounts\.google\.com$/.test(host) && !/^(mail|calendar)\.google\.com$/.test(from)) {
+      setTimeout(() => contents.loadURL(url).catch(() => {}), 0); // a navigation started inside this handler is dropped
+      return { action: 'deny' };
+    }
     if (mod && OWN_HOSTS[mod]?.test(host)) {
       win?.webContents.send('new-tab', { mod, url });
       return { action: 'deny' };
@@ -222,8 +303,7 @@ function watchForUpdates() {
         // Restart only if they all parse: a half-saved file would otherwise stop Monodesk until it's started by hand.
         const broken = restart.find((f) => { try { new vm.Script(fs.readFileSync(path.join(__dirname, f), 'utf8'), { filename: f }); return false; } catch { return true; } });
         if (broken) { win.webContents.send('toast', `${broken} has an error, so Monodesk didn't restart. Fix it and save again.`); return; }
-        app.relaunch();
-        app.exit(0);
+        Promise.race([saveSessions(), new Promise((r) => setTimeout(r, 3000))]).finally(() => { app.relaunch(); app.exit(0); });
       } else if (list.some((f) => f !== 'style.css')) {
         win.webContents.once('did-finish-load', () => win.webContents.send('toast', 'Monodesk updated'));
         win.webContents.reload();
@@ -244,13 +324,12 @@ app.whenReady().then(() => {
   }
   nativeTheme.themeSource = 'dark'; // Monodesk opens in Color, with every app in its dark theme
   createWindow();
+  makeTray();
   writeShortcuts();
   watchForUpdates();
   // The phone app, at http://127.0.0.1:47800 (tailscale serve shares it with your devices).
   bridge.start();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on('activate', showWin);
 });
 
 app.on('window-all-closed', () => {

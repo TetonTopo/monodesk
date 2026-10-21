@@ -13,6 +13,14 @@ const DIR = __dirname;
 const KEEP = new Set(['config.js', 'node_modules', '.git', 'Monodesk.lnk']); // never overwritten by a zip update
 
 const state = { busy: false };
+// main.js saves every app's sign-ins to disk here before an update restarts Monodesk.
+let saveFirst = async () => {};
+const beforeExit = (fn) => { saveFirst = fn; };
+const exitSoon = (relaunch) => setTimeout(async () => {
+  await Promise.race([saveFirst().catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
+  if (relaunch) app.relaunch();
+  app.exit(0);
+}, 300);
 
 const sh = (cmd, args, cwd) => new Promise((res, rej) => execFile(cmd, args, { cwd, windowsHide: true, timeout: 180000 }, (err, out, errOut) => (err ? rej(new Error((errOut || err.message).trim())) : res(out.trim()))));
 const readPkg = (dir = DIR) => JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
@@ -103,9 +111,9 @@ async function update() {
       // Electron can't replace itself while running, so Start Monodesk.cmd installs and then starts it.
       fs.writeFileSync(path.join(DIR, '.needs-install'), '');
       spawn('cmd.exe', ['/c', 'Start Monodesk.cmd'], { cwd: DIR, detached: true, stdio: 'ignore' }).unref();
-      setTimeout(() => app.exit(0), 300);
+      exitSoon(false);
     } else {
-      setTimeout(() => { app.relaunch(); app.exit(0); }, 300);
+      exitSoon(true);
     }
     return { ok: true, version: after.version };
   } catch (e) {
@@ -120,4 +128,4 @@ function ensureConfig() {
   if (!fs.existsSync(cfg) && fs.existsSync(example)) fs.copyFileSync(example, cfg);
 }
 
-module.exports = { state, version, check, update, ensureConfig, dispatchDir, ensureDispatch };
+module.exports = { state, version, check, update, ensureConfig, dispatchDir, ensureDispatch, beforeExit };

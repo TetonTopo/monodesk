@@ -1,7 +1,7 @@
 {
   "name": "monodesk",
   "productName": "Monodesk",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Gmail, Notion, Claude and WhatsApp in one quiet window.",
   "main": "main.js",
   "private": true,
