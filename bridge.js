@@ -472,9 +472,9 @@ async function xiVoices(fresh) {
     id: v.voice_id, name: v.name, accent: v.labels?.accent || '', gender: v.labels?.gender || '',
     about: v.labels?.descriptive || v.labels?.description || v.labels?.use_case || '', preview: v.preview_url || '', mine: true,
   }));
-  const have = new Set(voices.map((v) => v.id));
+  const have = new Set(voices.flatMap((v) => [v.id, v.name]));
   // Library voices whose owners charge more than the normal rate are left out.
-  const library = aus.status === 'fulfilled' ? (aus.value.voices || []).filter((v) => !have.has(v.voice_id) && !(v.rate > 1) && !v.fiat_rate).map((v) => ({
+  const library = aus.status === 'fulfilled' ? (aus.value.voices || []).filter((v) => !have.has(v.voice_id) && !have.has(v.name) && !(v.rate > 1) && !v.fiat_rate).map((v) => ({
     id: v.voice_id, owner: v.public_owner_id, name: v.name, accent: v.accent || 'australian', gender: v.gender || '',
     about: v.descriptive || v.use_case || '', preview: v.preview_url || '', mine: false,
   })) : [];
