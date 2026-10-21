@@ -197,8 +197,8 @@ ipcMain.handle('copy', (_e, text) => {
 });
 
 ipcMain.handle('mode', (_e, mode) => {
-  // Mono asks every app for its dark theme (the shell then turns it grey). Color shows each app's normal look.
-  nativeTheme.themeSource = mode === 'color' ? 'light' : 'dark';
+  // Color asks every app for its dark theme; Mono asks for the light one, which the shell redraws on parchment.
+  nativeTheme.themeSource = mode === 'color' ? 'dark' : 'light';
   return true;
 });
 
@@ -242,7 +242,7 @@ app.whenReady().then(() => {
       callback(ALLOWED_PERMISSIONS.includes(permission));
     });
   }
-  nativeTheme.themeSource = 'dark';
+  nativeTheme.themeSource = 'dark'; // Monodesk opens in Color, with every app in its dark theme
   createWindow();
   writeShortcuts();
   watchForUpdates();

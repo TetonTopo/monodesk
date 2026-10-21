@@ -54,7 +54,7 @@ const store = {
 const S = {
   panes: store.get('panes', ['home']).filter((m) => APPS[m]).slice(0, 2),
   focus: 0,
-  mode: store.get('mode', 'mono'),
+  mode: 'color', // Monodesk always opens in Color; Mono is a switch for the moment
   unread: { mail: 0, wa: 0 },
   tabs: {},
   active: {},
@@ -192,7 +192,6 @@ function setMode(mode) {
   S.mode = mode;
   if (mode === 'color') document.documentElement.dataset.mode = 'color';
   else delete document.documentElement.dataset.mode;
-  store.set('mode', mode);
   window.md?.setMode(mode);
   topbar();
 }
