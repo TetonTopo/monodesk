@@ -408,6 +408,16 @@ const MODELS = {
 };
 const DEFAULT_MODEL = 'eleven_flash_v2_5';
 const MATILDA = 'XrExE9yKIg1WjnnlVkGX'; // ElevenLabs' own Matilda, the last resort when no Australian voice is found
+// ElevenLabs' built-in voices, for a key that may only make speech (no Voices permission, so it can't list any).
+const BUILT_IN = [
+  ['IKne3meq5aSn9XLyUdCD', 'Charlie', 'australian', 'male', 'conversational'],
+  ['XrExE9yKIg1WjnnlVkGX', 'Matilda', 'american', 'female', 'warm'],
+  ['Xb7hH8MSUJpSbSDYk0k2', 'Alice', 'british', 'female', 'clear'],
+  ['pFZP5JQG7iQjIQuC4Bku', 'Lily', 'british', 'female', 'warm'],
+  ['EXAVITQu4vr4xnSDxMaL', 'Sarah', 'american', 'female', 'soft'],
+  ['21m00Tcm4TlvDq8ikWAM', 'Rachel', 'american', 'female', 'calm'],
+  ['JBFqnCBsd6RMkjVDRZzb', 'George', 'british', 'male', 'warm'],
+].map(([id, name, accent, gender, about]) => ({ id, name, accent, gender, about, preview: '', mine: true }));
 
 // config.js is browser code (window.MONODESK_CONFIG = …), so it's run in an empty sandbox. Re-read when it changes.
 let cfg = { at: 0, val: {} };
@@ -434,7 +444,8 @@ async function xi(p, opts = {}) {
   if (r.ok) return r;
   let detail = '';
   try { const j = await r.json(); detail = j.detail?.status || j.detail?.message || (typeof j.detail === 'string' ? j.detail : ''); } catch {}
-  const why = /quota|credit/i.test(detail) ? 'out of credits'
+  const why = /missing_permissions/.test(detail) ? 'the key in config.js needs more access on elevenlabs.io'
+    : /quota|credit/i.test(detail) ? 'out of credits'
     : r.status === 401 ? 'it didn’t accept the key in config.js'
     : r.status === 429 ? 'too busy right now'
     : detail || 'error ' + r.status;
@@ -454,8 +465,10 @@ async function xiVoices(fresh) {
     xi('/v1/shared-voices?language=en&accent=australian&page_size=40&sort=trending').then((r) => r.json()),
     xi('/v1/user/subscription').then((r) => r.json()),
   ]);
-  if (mine.status === 'rejected') throw mine.reason;
-  const voices = (mine.value.voices || []).map((v) => ({
+  // A key without the Voices permission can still make speech, in ElevenLabs' built-in voices.
+  const limited = mine.status === 'rejected' && /needs more access/.test(mine.reason.message);
+  if (mine.status === 'rejected' && !limited) throw mine.reason;
+  const voices = limited ? BUILT_IN : (mine.value.voices || []).map((v) => ({
     id: v.voice_id, name: v.name, accent: v.labels?.accent || '', gender: v.labels?.gender || '',
     about: v.labels?.descriptive || v.labels?.description || v.labels?.use_case || '', preview: v.preview_url || '', mine: true,
   }));
@@ -475,6 +488,7 @@ async function xiVoices(fresh) {
   const s = sub.status === 'fulfilled' ? sub.value : null;
   const val = {
     enabled: true,
+    limited, // true: the key can't list voices or read credits, so Dispatch says how to give it more access
     voices, library,
     default: { id: def.id, owner: def.mine === false ? def.owner : undefined, name: def.name || 'Matilda' },
     models: Object.entries(MODELS).map(([id, m]) => ({ id, name: m.name, about: m.about, per: m.per })),
