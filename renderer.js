@@ -102,6 +102,7 @@ function createTab(m, url) {
   const nav = (e) => { if (/^https?:/.test(e.url || '')) { tab.url = e.url; saveTabs(); if (m === 'claude') topbar(); } };
   wv.addEventListener('did-navigate', nav);
   wv.addEventListener('did-navigate-in-page', (e) => { if (e.isMainFrame !== false) nav(e); });
+  if (m === 'notion') wv.addEventListener('did-stop-loading', () => refreshNotionFavs());
   $('#stage').appendChild(wv);
   S.tabs[m].push(tab);
   return tab;
@@ -256,7 +257,7 @@ function buildHome() {
         <div class="qb" id="q-mail"></div>
       </section>
       <section class="q" data-mod="notion">
-        <div class="qh"><span class="ic">${I('notion')}</span><div class="favs" id="notion-favs"></div><span class="sp"></span><button class="lnk" data-act="fav" title="Add the page that's open in Notion to these favourites (press again to take it off)">${I('star')}</button><button class="lnk" data-act="open-pin">Open</button></div>
+        <div class="qh"><span class="ic">${I('notion')}</span><div class="favs" id="notion-favs"></div><span class="sp"></span><button class="lnk" data-act="fav">${I('star')}</button><button class="lnk" data-act="open-pin">Open</button></div>
         <div class="qb qweb" id="q-notion"></div>
       </section>
       <section class="q" data-mod="claude" id="q-claude"></section>
@@ -367,7 +368,7 @@ function buildNotionMini() {
   mini.setAttribute('src', pin?.url || APPS.notion.url);
   mini.addEventListener('dom-ready', () => mini.setZoomFactor(0.72));
   mini.addEventListener('did-start-loading', () => { miniSettled = 0; });
-  mini.addEventListener('did-stop-loading', () => { miniSettled = Date.now() + 2500; });
+  mini.addEventListener('did-stop-loading', () => { miniSettled = Date.now() + 2500; refreshNotionFavs(); });
   mini.addEventListener('did-navigate-in-page', (e) => {
     const p = store.get('notionPin', null);
     if (!p || !miniSettled || Date.now() < miniSettled) return;
@@ -377,29 +378,78 @@ function buildNotionMini() {
   $('#q-notion').appendChild(mini);
 }
 
-// Favourite Notion pages along the panel's top bar: click one to show it in the panel, × takes it off.
-// The star adds the page that's open in the Notion tab (or takes it off). A page pinned before favourites becomes the first one.
+// Favourite Notion pages along the panel's top bar: click one to show it in the panel.
+// They are your Favorites from Notion's sidebar, read from Notion itself. If Notion can't say (signed out, still loading,
+// or it changed), the row shows the pages starred here instead: the star adds the open page, × takes one off.
+// A page pinned before favourites becomes the first starred one.
+let liveFavs = null;
 function notionFavs() {
   let favs = store.get('notionFavs', null);
   if (!favs) { const p = store.get('notionPin', null); favs = p ? [p] : []; store.set('notionFavs', favs); }
   return favs;
 }
+const shownFavs = () => (liveFavs?.length ? liveFavs : notionFavs());
 function drawFavs() {
   const box = $('#notion-favs');
   if (!box) return;
-  const favs = notionFavs(), cur = pageId(store.get('notionPin', null)?.url);
+  const live = !!liveFavs?.length, favs = shownFavs(), cur = pageId(store.get('notionPin', null)?.url);
   box.innerHTML = favs.length
-    ? favs.map((f, i) => `<button class="fav${pageId(f.url) === cur ? ' on' : ''}" data-act="fav-show" data-i="${i}" title="${esc(f.title)}"><span class="ft">${esc(f.title)}</span><span class="x" data-act="fav-del" data-i="${i}" title="Take off favourites">${I('x')}</span></button>`).join('')
-    : '<span class="sub">Open a page in Notion, then press the star to keep it here</span>';
+    ? favs.map((f, i) => `<button class="fav${pageId(f.url) === cur ? ' on' : ''}" data-act="fav-show" data-i="${i}" title="${esc(f.title)}"><span class="ft">${f.icon ? esc(f.icon) + ' ' : ''}${esc(f.title)}</span>${live ? '' : `<span class="x" data-act="fav-del" data-i="${i}" title="Take off favourites">${I('x')}</span>`}</button>`).join('')
+    : '<span class="sub">Add pages to Favorites in Notion to keep them here</span>';
+  const star = $('[data-act="fav"]');
+  if (star) star.title = live ? 'Your Notion Favorites. Add or remove one in Notion and it changes here.' : 'Add the page that\'s open in Notion to these favourites (press again to take it off)';
 }
+
+// Runs inside Notion: the Favorites in its sidebar, in order, from Notion's own data (so it works with the sidebar shut).
+async function readNotionFavorites() {
+  const post = (p, b) => fetch('/api/v3/' + p, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }).then((r) => (r.ok ? r.json() : null));
+  const val = (v) => v?.value?.value || v?.value;
+  const text = (t) => (t || []).map((s) => s[0]).join('').trim();
+  const user = await post('loadUserContent', {});
+  const views = Object.values(user?.recordMap?.space_view || {}).map(val).filter((v) => v?.alive !== false);
+  if (!views.length) return null;
+  const ids = [...new Set(views.flatMap((v) => v.bookmarked_pages || []))];
+  if (!ids.length) return [];
+  const get = async (table, list) => (await post('syncRecordValuesMain', { requests: list.map((id) => ({ pointer: { table, id }, version: -1 })) }))?.recordMap?.[table] || {};
+  const blocks = await get('block', ids);
+  const pages = ids.map((id) => val(blocks[id])).filter((b) => b && b.alive !== false);
+  // A database's name and icon live on the database, not on the page that holds it.
+  const colls = await get('collection', pages.filter((b) => b.collection_id).map((b) => b.collection_id));
+  return pages.map((b) => {
+    const icon = b.format?.page_icon || val(colls[b.collection_id])?.icon;
+    return {
+      url: location.origin + '/p/' + b.id.replace(/-/g, ''),
+      title: text(b.properties?.title) || text(val(colls[b.collection_id])?.name) || 'Untitled',
+      icon: icon && !/[/:.]/.test(icon) ? icon : '',
+    };
+  });
+}
+let favsBusy = false;
+async function refreshNotionFavs() {
+  const wv = S.tabs.notion?.[0]?.wv || mini;
+  if (!wv || favsBusy) return;
+  favsBusy = true;
+  let r = null;
+  try { r = await wv.executeJavaScript(`(${readNotionFavorites})()`); } catch {}
+  favsBusy = false;
+  // Keep the last good list through a failed read, so the row doesn't flicker while Notion reloads.
+  if (Array.isArray(r) && JSON.stringify(r) !== JSON.stringify(liveFavs)) { liveFavs = r; drawFavs(); }
+}
+setInterval(refreshNotionFavs, 2 * 60e3);
+
 function showNotionPage(p) {
   if (!p) return;
-  store.set('notionPin', p);
+  store.set('notionPin', { url: p.url, title: p.title });
   mini?.loadURL(p.url);
   drawFavs();
 }
 function favNotionPage() {
   const t = activeTab('notion');
+  if (liveFavs?.length) {
+    const has = t && liveFavs.some((f) => pageId(f.url) === pageId(t.url));
+    toast(has ? `“${t.title}” is in your Notion Favorites. Take it off there to remove it here.` : 'Add it to Favorites in Notion (the star at the top of the page), and it shows up here.');
+    return;
+  }
   if (!t || !pageId(t.url)) { toast('Open a page in Notion first, then press the star.'); return; }
   const favs = notionFavs(), i = favs.findIndex((f) => pageId(f.url) === pageId(t.url));
   if (i >= 0) {
@@ -1048,7 +1098,7 @@ document.addEventListener('click', (e) => {
     case 'code': openCode(); break;
     case 'claude-mode': claudeMode(d.which); break;
     case 'fav': favNotionPage(); break;
-    case 'fav-show': showNotionPage(notionFavs()[+d.i]); break;
+    case 'fav-show': showNotionPage(shownFavs()[+d.i]); break;
     case 'fav-del': unfavNotionPage(+d.i); break;
     case 'wa-pin': pinWAChat(); break;
     case 'triage-run': runTriage(); break;
