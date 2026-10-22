@@ -22,6 +22,11 @@ const SLOT_NAMES = { cowork: 'Co-work', code: 'Claude Code' };
 const goSlot = (s) => (s === 'cowork' || s === 'code' ? claudeMode(s) : go(s));
 const WEB = ORDER.filter((m) => APPS[m].url);
 const MAX_TABS = 12;
+// Apps you can put to sleep. Claude sleeps by side, so Co-work and Claude Code are separate.
+const UNITS = ['mail', 'notion', 'cowork', 'code', 'wa', 'cal'];
+const unitName = (u) => SLOT_NAMES[u] || APPS[u]?.name || u;
+const unitIcon = (u) => (u === 'cowork' ? 'claude' : u === 'code' ? 'term' : u);
+const unitOf = (m, url) => (m === 'claude' ? (isCodeUrl(url) ? 'code' : 'cowork') : m);
 
 const P = {
   home: '<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>',
@@ -59,6 +64,7 @@ const S = {
   unread: { mail: 0, wa: 0 },
   tabs: {},
   active: {},
+  sleep: new Set(store.get('asleep', []).filter((u) => UNITS.includes(u))), // apps asleep, kept across restarts
 };
 if (!S.panes.length) S.panes = ['home'];
 
@@ -85,13 +91,16 @@ function saveTabs() {
 function createTab(m, url) {
   const wv = document.createElement('webview');
   const tab = { wv, url: url || APPS[m].url, title: APPS[m].name };
+  tab.asleep = S.sleep.has(unitOf(m, tab.url)); // a sleeping app's tabs start blank and load when it wakes
   wv.className = 'view';
   wv.dataset.mod = m;
   wv.setAttribute('partition', 'persist:' + (APPS[m].partition || m));
   wv.setAttribute('allowpopups', '');
-  wv.setAttribute('src', tab.url);
+  wv.setAttribute('src', tab.asleep ? 'about:blank' : tab.url);
   wv.addEventListener('focus', () => setFocus(S.panes.indexOf(m)));
+  wv.addEventListener('dom-ready', () => zoomWv(wv));
   wv.addEventListener('page-title-updated', (e) => {
+    if (tab.asleep) return; // keeps its title and unread count while asleep
     tab.title = cleanTitle(m, e.title);
     if ((m === 'mail' || m === 'wa') && S.tabs[m][0] === tab) {
       const n = countFromTitle(e.title);
@@ -109,6 +118,7 @@ function createTab(m, url) {
 }
 
 function newTab(m, url) {
+  if (APPS[m]) setSleep(unitOf(m, url || APPS[m].url), false); // opening something in an app wakes it
   if (!APPS[m]?.tabs) { if (url) activeWv(m).loadURL(url); return go(m); }
   if (S.tabs[m].length >= MAX_TABS) { toast(`${APPS[m].name} has ${MAX_TABS} tabs open. Close one first.`); return go(m); }
   createTab(m, url);
@@ -133,6 +143,62 @@ function selectTab(m, i) {
   go(m);
 }
 
+/* ---------- sleep: unload an app that's lagging or using too much network, keep using the rest ---------- */
+// Asleep, an app's pages go blank (about:blank), which frees its memory and stops its network. Waking reloads them
+// where they were. Shift-click its icon, or use the switches in the 𝕸 menu. Dispatch's own Claude windows never sleep.
+const asleep = (u) => S.sleep.has(u);
+const tabsOf = (u) => (u === 'cowork' || u === 'code' ? S.tabs.claude.filter((t) => sideOf(t) === u) : S.tabs[u] || []);
+// A webview takes loadURL once it's running; before that, only a new src.
+function loadWv(wv, url) { try { wv.loadURL(url).catch(() => {}); } catch { wv.setAttribute('src', url); } }
+
+function setSleep(u, on) {
+  if (!UNITS.includes(u) || asleep(u) === on) return;
+  if (on) S.sleep.add(u); else S.sleep.delete(u);
+  store.set('asleep', [...S.sleep]);
+  for (const t of tabsOf(u)) {
+    if (t.asleep === on) continue;
+    t.asleep = on;
+    t.busy = t.ready = false;
+    loadWv(t.wv, on ? 'about:blank' : t.url);
+  }
+  if (u === 'notion' && mini) loadWv(mini, on ? 'about:blank' : store.get('notionPin', null)?.url || APPS.notion.url);
+  if (u === 'cowork' && !store.get('homeDispatch', true)) buildClaudePanel();
+  layout(); // also refreshes Home's panels
+  notionSleep();
+  drawUsage();
+  toast(on ? `${unitName(u)} is asleep. Shift-click its icon to wake it.` : `Waking ${unitName(u)}…`);
+}
+
+const sleepNote = (u) => `<div class="blank zz"><div>${esc(unitName(u))} is asleep<button class="btn ghost" data-act="wake" data-u="${u}">Wake</button></div></div>`;
+
+// Home's Notion panel shows a note instead of its page while Notion sleeps.
+function notionSleep() {
+  const box = $('#q-notion');
+  if (!box || !mini) return;
+  mini.style.display = asleep('notion') ? 'none' : '';
+  box.querySelector('.zz')?.remove();
+  if (asleep('notion')) box.insertAdjacentHTML('beforeend', sleepNote('notion'));
+}
+
+// What an app's pane shows while it sleeps: a card with a Wake button, in place of its page.
+const cards = {};
+function sleepCard(m, slot) {
+  const t = activeTab(m), off = !!t?.asleep;
+  if (!off && !cards[m]) return;
+  if (!cards[m]) {
+    cards[m] = document.createElement('section');
+    cards[m].className = 'view sleepcard';
+    cards[m].dataset.mod = m;
+    $('#stage').appendChild(cards[m]);
+  }
+  const u = unitOf(m, t?.url);
+  if (off && cards[m].dataset.u !== u) {
+    cards[m].dataset.u = u;
+    cards[m].innerHTML = `<div class="zcard">${I(unitIcon(u))}<b>${esc(unitName(u))} is asleep</b><span>Its pages are unloaded, so it uses no memory or network. Waking reloads it where you left off.</span><button class="btn" data-act="wake" data-u="${u}">Wake</button><span class="hint">or Shift-click its icon in the top bar</span></div>`;
+  }
+  place(cards[m], slot, off);
+}
+
 /* ---------- layout ---------- */
 function place(el, slot, visible) {
   const split = S.panes.length > 1;
@@ -147,7 +213,11 @@ function place(el, slot, visible) {
 
 function layout() {
   place(homeEl, S.panes.indexOf('home'), true);
-  for (const m of WEB) S.tabs[m].forEach((t, i) => place(t.wv, S.panes.indexOf(m), i === S.active[m]));
+  for (const m of WEB) {
+    const slot = S.panes.indexOf(m);
+    S.tabs[m].forEach((t, i) => place(t.wv, slot, i === S.active[m] && !t.asleep));
+    sleepCard(m, slot);
+  }
   if (S.panes.includes('home')) refreshHome();
   const ct = activeTab('claude');
   if (ct) claudeLast[sideOf(ct)] = S.active.claude;
@@ -202,6 +272,7 @@ function setMode(mode) {
 function themeDispatch() { $('#dispatch')?.contentWindow?.postMessage({ to: 'dispatch', type: 'theme', paper: S.mode !== 'color' }, '*'); }
 
 /* ---------- top bar ---------- */
+const zzTip = (u) => (!UNITS.includes(u) ? '' : asleep(u) ? '\nAsleep · Shift-click to wake' : '\nShift-click to put to sleep');
 function topbar() {
   const cur = S.panes[S.focus];
   const split = S.panes.length > 1;
@@ -211,12 +282,12 @@ function topbar() {
     // Claude gets two buttons, one for each side of claude.ai. The lit one is whichever the open Claude tab is on.
     if (m === 'claude') {
       const code = isCodeUrl(activeTab('claude')?.url);
-      const c = (which) => (code === (which === 'code') ? cls : '');
+      const c = (which) => (code === (which === 'code') ? cls : '') + (asleep(which) ? ' asleep' : '');
       const ready = (which) => { const r = S.tabs.claude.filter((t) => t.ready && sideOf(t) === which).length; return r ? `<span class="dot">${r}</span>` : ''; };
-      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Ctrl ${SLOTS.indexOf('cowork') + 1} · Alt 1–9 for recent chats, Alt 0 for a new one)">${I('claude')}${ready('cowork')}</button>`
-        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Ctrl ${SLOTS.indexOf('code') + 1} · Alt 1–9 for recent sessions, Alt 0 for a new one)">${I('term')}${ready('code')}</button>`;
+      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Ctrl ${SLOTS.indexOf('cowork') + 1} · Alt 1–9 for recent chats, Alt 0 for a new one)${zzTip('cowork')}">${I('claude')}${ready('cowork')}</button>`
+        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Ctrl ${SLOTS.indexOf('code') + 1} · Alt 1–9 for recent sessions, Alt 0 for a new one)${zzTip('code')}">${I('term')}${ready('code')}</button>`;
     }
-    return `<button class="abtn ${cls}" data-act="go" data-mod="${m}" title="${APPS[m].name}  (Ctrl ${SLOTS.indexOf(m) + 1})">${I(m)}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}</button>`;
+    return `<button class="abtn ${cls}${asleep(m) ? ' asleep' : ''}" data-act="go" data-mod="${m}" title="${APPS[m].name}  (Ctrl ${SLOTS.indexOf(m) + 1})${zzTip(m)}">${I(m)}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}</button>`;
   }).join('') + (TODO_DB ? `<button class="abtn" data-act="add-todo" title="New ${esc(TODO_GROUP)} to-do">${I('plus')}</button>` : '');
 
   let mid = '';
@@ -226,7 +297,7 @@ function topbar() {
   if (APPS[cur]?.tabs) {
     const list = S.tabs[cur];
     if (list.length > 1 || cur === 'notion') {
-      mid += '<span class="sep"></span>' + list.map((t, i) => `<button class="ptab ${i === S.active[cur] ? 'on' : ''}" data-act="tab" data-mod="${cur}" data-i="${i}" title="${esc(t.title)}">${t.ready ? '<span class="rdot"></span>' : ''}<span class="tt">${esc(t.title)}</span>${list.length > 1 ? `<span class="x" data-act="close-tab" data-mod="${cur}" data-i="${i}" title="Close tab (Ctrl W)">${I('x')}</span>` : ''}</button>`).join('');
+      mid += '<span class="sep"></span>' + list.map((t, i) => `<button class="ptab ${i === S.active[cur] ? 'on' : ''}${t.asleep ? ' asleep' : ''}" data-act="tab" data-mod="${cur}" data-i="${i}" title="${esc(t.title)}${t.asleep ? ' · asleep' : ''}">${t.ready ? '<span class="rdot"></span>' : ''}<span class="tt">${esc(t.title)}</span>${list.length > 1 ? `<span class="x" data-act="close-tab" data-mod="${cur}" data-i="${i}" title="Close tab (Ctrl W)">${I('x')}</span>` : ''}</button>`).join('');
     }
     mid += `<button class="icbtn" data-act="new-tab" data-mod="${cur}" title="New ${APPS[cur].name} tab (Ctrl T)">${I('plus')}</button>`;
   }
@@ -312,14 +383,16 @@ function buildTriage() {
 }
 
 function mountTriage(url) {
+  if (asleep('cowork')) { $('#q-triage').innerHTML = sleepNote('cowork'); return; }
   if (triage) { triage.loadURL(url); return; }
   $('#q-triage').innerHTML = '';
   triage = document.createElement('webview');
+  triage.dataset.zoom = '0.8';
   triage.setAttribute('partition', 'persist:claude');
   triage.setAttribute('allowpopups', '');
   triage.setAttribute('src', url);
   triage.addEventListener('dom-ready', () => {
-    triage.setZoomFactor(0.8);
+    zoomWv(triage);
     if (triageSend) { triageSend = false; triage.executeJavaScript(`(${pressSendIfWaiting})(${JSON.stringify(TRIAGE_PROMPT)})`).catch(() => {}); }
   });
   const nav = (e) => { if (/^https:\/\/claude\.ai\/chat\//.test(e.url || '')) store.set('triageChat', e.url); };
@@ -329,6 +402,7 @@ function mountTriage(url) {
 }
 
 function runTriage() {
+  setSleep('cowork', false);
   // With Dispatch showing, the triage starts as a new chat there and opens in the panel.
   const frame = $('#dispatch');
   if (frame) { frame.contentWindow.postMessage({ to: 'dispatch', type: 'new', kind: 'cowork', text: TRIAGE_PROMPT, title: 'Inbox triage' }, '*'); return; }
@@ -363,10 +437,11 @@ function buildNotionMini() {
   const pin = store.get('notionPin', null);
   drawFavs();
   mini = document.createElement('webview');
+  mini.dataset.zoom = '0.72';
   mini.setAttribute('partition', 'persist:notion');
   mini.setAttribute('allowpopups', '');
-  mini.setAttribute('src', pin?.url || APPS.notion.url);
-  mini.addEventListener('dom-ready', () => mini.setZoomFactor(0.72));
+  mini.setAttribute('src', asleep('notion') ? 'about:blank' : pin?.url || APPS.notion.url);
+  mini.addEventListener('dom-ready', () => zoomWv(mini));
   mini.addEventListener('did-start-loading', () => { miniSettled = 0; });
   mini.addEventListener('did-stop-loading', () => { miniSettled = Date.now() + 2500; refreshNotionFavs(); });
   mini.addEventListener('did-navigate-in-page', (e) => {
@@ -376,6 +451,7 @@ function buildNotionMini() {
     if (a && b && a !== b) { newTab('notion', e.url); mini.loadURL(p.url); }
   });
   $('#q-notion').appendChild(mini);
+  notionSleep();
 }
 
 // Favourite Notion pages along the panel's top bar: click one to show it in the panel.
@@ -427,7 +503,7 @@ async function readNotionFavorites() {
 let favsBusy = false;
 async function refreshNotionFavs() {
   const wv = S.tabs.notion?.[0]?.wv || mini;
-  if (!wv || favsBusy) return;
+  if (!wv || favsBusy || asleep('notion')) return; // asleep, the row keeps the last list it read
   favsBusy = true;
   let r = null;
   try { r = await wv.executeJavaScript(`(${readNotionFavorites})()`); } catch {}
@@ -440,7 +516,7 @@ setInterval(refreshNotionFavs, 2 * 60e3);
 function showNotionPage(p) {
   if (!p) return;
   store.set('notionPin', { url: p.url, title: p.title });
-  mini?.loadURL(p.url);
+  if (!asleep('notion')) mini?.loadURL(p.url); // asleep, it shows when Notion wakes
   drawFavs();
 }
 function favNotionPage() {
@@ -503,6 +579,7 @@ function readOpenChatName() {
 
 // The pin button adds the open chat to the pinned list, or takes it off if it's already there.
 async function pinWAChat() {
+  if (asleep('wa')) { toast('WhatsApp is asleep. Wake it first.'); return; }
   let name = null;
   try { name = await S.tabs.wa[0].wv.executeJavaScript(`(${readOpenChatName})()`); } catch {}
   if (!name) { toast('Open a chat in WhatsApp first, then press the pin.'); return; }
@@ -643,6 +720,7 @@ function openReply(name, anchor) {
 async function refreshWA() {
   const box = $('#q-wa');
   const pinned = store.get('waPins', []);
+  if (asleep('wa')) { box.innerHTML = sleepNote('wa'); $('#wa-sub').textContent = ''; return; }
   let r = null;
   try { r = await S.tabs.wa[0].wv.executeJavaScript(`(${readUnreadChats})(${JSON.stringify(pinned)})`); } catch {}
   if (r === null) { box.innerHTML = blank('WhatsApp is loading…'); $('#wa-sub').textContent = ''; return; }
@@ -716,6 +794,7 @@ const shortWhen = (iso) => {
 };
 async function refreshMail() {
   const box = $('#q-mail');
+  if (asleep('mail')) { box.innerHTML = sleepNote('mail'); $('#mail-sub').textContent = ''; return; }
   let all = null;
   try { all = await S.tabs.mail[0].wv.executeJavaScript(`(${readUnreadMail})()`); } catch {}
   if (all === null) { box.innerHTML = blank('Sign in to Gmail in the Mail tab to see important unread mail here.'); $('#mail-sub').textContent = ''; return; }
@@ -740,6 +819,7 @@ const claudeSeen = (t) => S.panes.includes('claude') && activeTab('claude') === 
 async function pollClaude() {
   let changed = false;
   for (const t of S.tabs.claude) {
+    if (t.asleep) continue;
     let busy;
     try { busy = await t.wv.executeJavaScript(CLAUDE_BUSY); } catch { continue; }
     if (t.busy && !busy && !claudeSeen(t)) { t.ready = true; changed = true; }
@@ -757,6 +837,7 @@ function askClaude(text) {
   const short = text.length < 6000;
   const url = short ? 'https://claude.ai/new?q=' + encodeURIComponent(text) : COWORK_URL;
   // Asks go to a Co-work tab, never over a Claude Code session.
+  setSleep('cowork', false);
   const i = claudeSideTab('cowork');
   if (i >= 0) { S.active.claude = i; S.tabs.claude[i].wv.loadURL(url); saveTabs(); }
   else if (S.tabs.claude.length < MAX_TABS) { createTab('claude', url); S.active.claude = S.tabs.claude.length - 1; saveTabs(); }
@@ -810,6 +891,7 @@ function formatChat(r, stamps) {
 }
 
 function openExport() {
+  if (asleep('wa')) { toast('WhatsApp is asleep. Wake it first.'); return; }
   closeLayer();
   let limit = 100, stamps = true, result = null;
   $('#layer').insertAdjacentHTML('beforeend', `<div class="ov" data-ov><div class="exp" data-mod="wa" role="dialog" aria-label="Copy WhatsApp chat">
@@ -889,6 +971,7 @@ async function newInBoardGroup(name) {
 }
 
 async function addTodo() {
+  setSleep('notion', false);
   let i = S.tabs.notion.findIndex((t) => pageId(t.url) === TODO_DB);
   if (i >= 0) selectTab('notion', i);
   else {
@@ -907,7 +990,7 @@ async function addTodo() {
 }
 
 /* ---------- command palette ---------- */
-function compose() { activeWv('mail').loadURL('https://mail.google.com/mail/u/0/#inbox?compose=new'); go('mail'); }
+function compose() { setSleep('mail', false); activeWv('mail').loadURL('https://mail.google.com/mail/u/0/#inbox?compose=new'); go('mail'); }
 function openCode() { claudeMode('code'); }
 const CLAUDE_CODE_URL = 'https://claude.ai/code';
 const COWORK_URL = 'https://claude.ai/new';
@@ -928,7 +1011,8 @@ function claudeMode(which, url) {
   const i = claudeSideTab(which);
   if (i < 0) return newTab('claude', url || (which === 'code' ? CLAUDE_CODE_URL : COWORK_URL));
   S.active.claude = i;
-  if (url) S.tabs.claude[i].wv.loadURL(url);
+  // Clicking the icon of a sleeping side shows its Wake card; opening a thread in it (from Dispatch) wakes it.
+  if (url) { setSleep(which, false); S.tabs.claude[i].wv.loadURL(url); }
   saveTabs();
   go('claude');
 }
@@ -947,9 +1031,13 @@ function commands() {
     { ic: 'claude', t: 'Run inbox triage', run: () => { go('home'); runTriage(); } },
     { ic: 'split', t: 'Toggle split view', k: 'Ctrl \\', run: toggleSplit },
     { ic: 'theme', t: S.mode === 'mono' ? 'Switch to Color' : 'Switch to Mono', run: () => setMode(S.mode === 'mono' ? 'color' : 'mono') },
-    { ic: 'back', t: 'Back', run: () => { const w = activeWv(cur); if (w?.canGoBack()) w.goBack(); } },
-    { ic: 'fwd', t: 'Forward', run: () => { const w = activeWv(cur); if (w?.canGoForward()) w.goForward(); } },
-    { ic: 'reload', t: 'Reload current app', run: () => (cur === 'home' ? refreshHome() : activeWv(cur).reload()) },
+    { ic: 'plus', t: 'Zoom in', k: 'Ctrl +', run: () => zoom(1) },
+    { ic: 'search', t: 'Zoom out', k: 'Ctrl −', run: () => zoom(-1) },
+    { ic: 'search', t: 'Actual size', k: 'Ctrl 0', run: () => zoom(0) },
+    ...UNITS.map((u) => ({ ic: unitIcon(u), t: `${asleep(u) ? 'Wake' : 'Put to sleep:'} ${unitName(u)}`, run: () => setSleep(u, !asleep(u)) })),
+    { ic: 'back', t: 'Back', run: () => { const w = !activeTab(cur)?.asleep && activeWv(cur); if (w?.canGoBack()) w.goBack(); } },
+    { ic: 'fwd', t: 'Forward', run: () => { const w = !activeTab(cur)?.asleep && activeWv(cur); if (w?.canGoForward()) w.goForward(); } },
+    { ic: 'reload', t: 'Reload current app', run: () => (cur === 'home' ? refreshHome() : activeTab(cur)?.asleep ? setSleep(unitOf(cur, activeTab(cur).url), false) : activeWv(cur).reload()) },
   ];
 }
 
@@ -1036,11 +1124,15 @@ setInterval(checkVersion, 6 * 3600e3);
 function openAbout() {
   closeLayer();
   const r = $('#top .mark').getBoundingClientRect();
-  $('#layer').insertAdjacentHTML('beforeend', `<div class="ov lite" data-ov><div class="replypop about" style="left:${r.left}px; top:${r.bottom + 6}px; width:260px" role="dialog" aria-label="About Monodesk">
+  $('#layer').insertAdjacentHTML('beforeend', `<div class="ov lite" data-ov><div class="replypop about" style="left:${r.left}px; top:${r.bottom + 6}px; width:${Math.min(470, window.innerWidth - r.left - 12)}px" role="dialog" aria-label="About Monodesk">
     <div class="ah"><b>Monodesk</b><span>${esc(VER.current || '')}</span></div>
     <div class="as" id="about-status">Checking GitHub…</div>
     <div class="rf"><span class="hint">github.com/TetonTopo/monodesk</span><button class="btn" id="about-go" hidden>Update</button></div>
+    <div class="usage" id="usage"><div class="ur uhd"><span>App</span><span>Down</span><span>Up</span><span title="Downloaded since Monodesk started">Total</span><span>CPU</span><span>Memory</span><span>Awake</span></div><div id="usage-rows"></div>
+      <div class="hint">Shift-click an app’s icon to put it to sleep or wake it. Asleep, it’s unloaded: no memory or network until you wake it. Counted inside Monodesk, so it won’t match Task Manager exactly.</div></div>
   </div></div>`);
+  drawUsage();
+  const usageTimer = setInterval(() => { if (!drawUsage()) clearInterval(usageTimer); }, 2000);
   $('[data-ov]').addEventListener('pointerdown', (e) => { if (e.target.matches('[data-ov]')) closeLayer(); });
   const status = $('#about-status'), go = $('#about-go');
   checkVersion().then((v) => {
@@ -1056,6 +1148,49 @@ function openAbout() {
     const res = await window.md.update().catch((e) => ({ error: e.message }));
     if (res?.error) { status.textContent = res.error; go.disabled = false; }
   });
+}
+
+// The 𝕸 menu's apps: what each is using, with its sleep switch. Returns false once the menu has closed.
+const USAGE_NAMES = { bridge: 'Dispatch bridge', monodesk: 'Monodesk' };
+const bytes = (n) => (n == null ? '–' : n < 1024 ? `${Math.round(n)} B` : n < 1048576 ? `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`);
+const rate = (n) => (n == null ? '–' : bytes(n) + '/s');
+// Which app each view belongs to, so a view on a sign-in page still counts under its app.
+function viewOwners() {
+  const own = {};
+  const add = (wv, u) => { try { own[wv.getWebContentsId()] = u; } catch {} };
+  for (const m of WEB) for (const t of S.tabs[m]) add(t.wv, unitOf(m, t.url));
+  if (mini) add(mini, 'notion');
+  if (triage) add(triage, 'cowork');
+  return own;
+}
+function drawUsage() {
+  const box = $('#usage-rows');
+  if (!box) return false;
+  window.md?.usage?.(viewOwners()).then((rows) => {
+    if (!box.isConnected || !rows) return;
+    box.innerHTML = rows.map((x) => {
+      const u = x.row, sw = UNITS.includes(u);
+      return `<div class="ur${sw && asleep(u) ? ' asleep' : ''}"><span class="un">${sw ? I(unitIcon(u)) : ''}${esc(USAGE_NAMES[u] || unitName(u))}</span><span>${rate(x.downRate)}</span><span>${rate(x.upRate)}</span><span>${bytes(x.down)}</span><span>${x.cpu == null ? '–' : x.cpu.toFixed(x.cpu < 10 ? 1 : 0) + '%'}</span><span>${bytes(x.mem)}</span><span>${sw ? `<button class="lnk tgl ${asleep(u) ? '' : 'on'}" data-act="sleep-toggle" data-u="${u}" title="${asleep(u) ? 'Wake' : 'Put to sleep'} ${esc(unitName(u))}"><span class="sw"></span></button>` : ''}</span></div>`;
+    }).join('');
+  }).catch(() => {});
+  return true;
+}
+
+/* ---------- zoom: Ctrl + / Ctrl − / Ctrl 0 size all of Monodesk at once, the shell and every app ---------- */
+const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+let ZOOM = ZOOMS.includes(store.get('zoom', 1)) ? store.get('zoom', 1) : 1;
+// A webview's own size (Home's Notion and triage panels are drawn smaller) times the app-wide zoom.
+function zoomWv(wv) { try { wv.setZoomFactor((+wv.dataset.zoom || 1) * ZOOM); } catch {} }
+function applyZoom() {
+  window.md?.zoom?.(ZOOM);
+  document.querySelectorAll('webview').forEach(zoomWv);
+}
+function zoom(dir) {
+  const i = ZOOMS.indexOf(ZOOM);
+  ZOOM = dir === 0 ? 1 : ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, i + dir))];
+  store.set('zoom', ZOOM);
+  applyZoom();
+  toast(`Zoom ${Math.round(ZOOM * 100)}%`);
 }
 
 /* ---------- helpers ---------- */
@@ -1082,8 +1217,12 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const d = b.dataset;
+  // Shift-click an app's icon in the top bar: put it to sleep, or wake it. It never switches to the app.
+  if (e.shiftKey && b.closest('#top .apps') && (d.act === 'go' || d.act === 'claude-mode')) { setSleep(d.which || d.mod, !asleep(d.which || d.mod)); return; }
   switch (d.act) {
     case 'go': go(d.mod); break;
+    case 'wake': setSleep(d.u, false); break;
+    case 'sleep-toggle': setSleep(d.u, !asleep(d.u)); break;
     case 'split': toggleSplit(); break;
     case 'mode': setMode(S.mode === 'mono' ? 'color' : 'mono'); break;
     case 'palette': openPalette(); break;
@@ -1106,7 +1245,7 @@ document.addEventListener('click', (e) => {
     case 'dispatch-toggle': store.set('homeDispatch', !store.get('homeDispatch', true)); buildClaudePanel(); break;
     case 'open-pin': { const p = store.get('notionPin', null); p ? newTab('notion', p.url) : go('notion'); break; }
     case 'refresh-mail': refreshMail(); break;
-    case 'mail-open': if (d.link) activeWv('mail').loadURL(d.link); go('mail'); break;
+    case 'mail-open': setSleep('mail', false); if (d.link) activeWv('mail').loadURL(d.link); go('mail'); break;
     case 'wa-reply': openReply(d.name, b); break;
     case 'wa-read': markWARead(d.name); break;
     case 'mail-read': markMailReadFromHome(d.id, d.subject); break;
@@ -1130,6 +1269,7 @@ function shortcut(key) {
   else if (key === 'w') { if (APPS[cur]?.tabs) closeTab(cur, S.active[cur]); }
   else if (/^[1-7]$/.test(key)) goSlot(SLOTS[+key - 1]);
   else if (key.startsWith('alt')) claudeAlt(key);
+  else if (key.startsWith('zoom')) zoom(key === 'zoom+' ? 1 : key === 'zoom-' ? -1 : 0);
 }
 
 /* Claude: hold Alt to number your recent chats (or Code sessions), Alt 1–9 to jump to one, Alt 0 for a new one. */
@@ -1190,7 +1330,8 @@ window.md?.onToast(toast);
 window.md?.onSignedIn(({ mod, url }) => {
   if (!APPS[mod]) return;
   const part = 'persist:' + (APPS[mod].partition || mod);
-  document.querySelectorAll(`webview[partition="${part}"]`).forEach((w) => { try { w.reload(); } catch {} });
+  setSleep(unitOf(mod, url || activeTab(mod)?.url), false);
+  document.querySelectorAll(`webview[partition="${part}"]`).forEach((w) => { try { if (w.getURL() !== 'about:blank') w.reload(); } catch {} });
   if (url) activeWv(mod).loadURL(url);
   go(mod);
   toast(`Signed in to ${APPS[mod].name}`);
@@ -1218,3 +1359,4 @@ for (const m of WEB) {
 buildHome();
 setMode(S.mode);
 layout();
+applyZoom();

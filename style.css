@@ -161,6 +161,31 @@ body.darwin .top{padding:0 10px 0 82px}
 .btn:hover{opacity:.88}
 .btn.ghost{background:none; color:var(--fg); border:1px solid var(--line-2)}
 .btn:disabled{opacity:.4; cursor:default}
+.btn[hidden]{display:none}
+
+/* sleep: a sleeping app's icon and tabs are dimmed; its pane shows a Wake card */
+.abtn.asleep{opacity:.32}
+.abtn.asleep::after{content:"z"; position:absolute; right:3px; bottom:1px; font:600 9px/1 var(--mono); color:var(--muted)}
+.ptab.asleep .tt{opacity:.45}
+.sleepcard{display:grid; place-items:center}
+.zcard{display:flex; flex-direction:column; align-items:center; gap:10px; max-width:340px; text-align:center; color:var(--muted); font-size:13px}
+.zcard .i{width:30px; height:30px; opacity:.5}
+.zcard b{color:var(--fg); font-size:15px; font-weight:600}
+.zcard .hint{font-size:11.5px; color:var(--faint)}
+.blank.zz > div{display:flex; flex-direction:column; align-items:center; gap:10px}
+.qweb .blank.zz{flex:1; background:var(--surface)}
+
+/* the 𝕸 menu's apps: what each uses, and its sleep switch */
+.usage{border-top:1px solid var(--line); margin-top:2px; padding-top:8px; display:flex; flex-direction:column; gap:2px}
+.usage .ur{display:grid; grid-template-columns:minmax(0,1.6fr) 1fr 1fr 1fr .7fr 1fr 44px; gap:6px; align-items:center; font-size:12px; font-variant-numeric:tabular-nums; color:var(--muted); min-height:24px}
+.usage .ur > span:not(.un){text-align:right; white-space:nowrap}
+.usage .uhd{font-size:11px; color:var(--faint); min-height:18px}
+.usage .un{display:flex; align-items:center; gap:6px; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.usage .un .i{width:14px; height:14px; flex:none}
+.usage .ur.asleep > span{opacity:.45}
+.usage .ur.asleep > span:last-child{opacity:1}
+.usage .tgl{justify-content:flex-end; width:100%}
+.usage .hint{font-size:11px; color:var(--faint); padding-top:6px; line-height:1.4}
 @media (max-width:980px){ .quad{grid-template-columns:1fr; grid-template-rows:repeat(4, minmax(220px,1fr)); overflow-y:auto} }
 
 /* overlays */

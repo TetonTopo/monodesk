@@ -5,6 +5,7 @@ const vm = require('vm');
 const bridge = require('./bridge');
 const updater = require('./updater');
 const calendar = require('./calendar');
+const usage = require('./usage');
 
 // Present as plain Chrome. WhatsApp Web and Google sign-in refuse browsers that announce "Electron".
 app.userAgentFallback = app.userAgentFallback.replace(/\s(monodesk|Electron)\/\S+/gi, '');
@@ -87,6 +88,7 @@ function createWindow() {
     // What a taskbar pin of this window runs.
     win.setAppDetails({ appId: APP_ID, appIconPath: ICON, relaunchCommand: `"${process.execPath}" ${LAUNCH_ARGS}`, relaunchDisplayName: 'Monodesk' });
   }
+  usage.start(win);
   win.loadFile('index.html');
   win.on('close', (e) => {
     if (quitting || !tray) return;
@@ -231,6 +233,20 @@ app.on('web-contents-created', (_event, contents) => {
   contextMenu(contents);
   // A page's "leave this page?" check never stops Monodesk from quitting or restarting.
   contents.on('will-prevent-unload', (e) => e.preventDefault());
+  // Count what it uses for the 𝕸 menu, once it has something to count.
+  if (['window', 'webview'].includes(contents.getType())) {
+    setImmediate(() => usage.watch(contents));
+    contents.once('did-start-loading', () => usage.watch(contents));
+  }
+  // Ctrl + / Ctrl − / Ctrl 0 zoom all of Monodesk at once, the shell and every app, wherever you press them.
+  contents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    if (contents !== win?.webContents && contents.getType() !== 'webview') return;
+    const z = { '=': 'zoom+', '+': 'zoom+', '-': 'zoom-', '_': 'zoom-', '0': 'zoom0' }[input.key];
+    if (!z) return;
+    event.preventDefault();
+    win?.webContents.send('shortcut', z);
+  });
   if (contents.getType() !== 'webview') return;
 
   const id = contents.id;
@@ -317,6 +333,17 @@ ipcMain.handle('copy', (_e, text) => {
   return true;
 });
 
+// The 𝕸 menu's per-app network, CPU and memory.
+ipcMain.handle('usage', (_e, own) => usage.snapshot(own && typeof own === 'object' ? own : {}));
+
+// Zoom for the shell itself (the apps are zoomed from the renderer). The window buttons grow with the top bar.
+ipcMain.handle('zoom', (_e, z) => {
+  const f = Math.min(3, Math.max(0.25, Number(z) || 1));
+  win?.webContents.setZoomFactor(f);
+  if (process.platform !== 'darwin') try { win?.setTitleBarOverlay({ ...OVERLAY, height: Math.round(OVERLAY.height * f) }); } catch {}
+  return f;
+});
+
 ipcMain.handle('mode', (_e, mode) => {
   // Color asks every app for its dark theme; Mono asks for the light one, then recolours it in paper and ink.
   nativeTheme.themeSource = mode === 'color' ? 'dark' : 'light';
@@ -329,7 +356,7 @@ ipcMain.handle('mode', (_e, mode) => {
 // style.css: restyled in place. index.html / renderer.js: the window reloads. main.js / preload.js: the app restarts.
 function watchForUpdates() {
   if (app.isPackaged) return;
-  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'updater.js', 'calendar.js']);
+  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'updater.js', 'calendar.js', 'usage.js']);
   const changed = new Set();
   let timer;
   fs.watch(__dirname, (_ev, file) => {
@@ -340,7 +367,7 @@ function watchForUpdates() {
       const list = [...changed];
       changed.clear();
       if (!win) return;
-      const restart = ['main.js', 'preload.js', 'bridge.js', 'updater.js', 'calendar.js'];
+      const restart = ['main.js', 'preload.js', 'bridge.js', 'updater.js', 'calendar.js', 'usage.js'];
       if (list.some((f) => restart.includes(f))) {
         // Restart only if they all parse: a half-saved file would otherwise stop Monodesk until it's started by hand.
         const broken = restart.find((f) => { try { new vm.Script(fs.readFileSync(path.join(__dirname, f), 'utf8'), { filename: f }); return false; } catch { return true; } });

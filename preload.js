@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('md', {
   version: () => ipcRenderer.invoke('version'),
   update: () => ipcRenderer.invoke('update'),
   calendar: (force) => ipcRenderer.invoke('calendar', force),
+  usage: (own) => ipcRenderer.invoke('usage', own),
+  zoom: (z) => ipcRenderer.invoke('zoom', z),
   onShortcut: (fn) => ipcRenderer.on('shortcut', (_e, key) => fn(key)),
   onNewTab: (fn) => ipcRenderer.on('new-tab', (_e, info) => fn(info)),
   onCssChanged: (fn) => ipcRenderer.on('css-changed', () => fn()),

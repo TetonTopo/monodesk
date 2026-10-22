@@ -23,6 +23,12 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 
 **Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Calendar (Google Calendar, signed in with the Mail tab), then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. Monodesk opens in **Color** (each app's own colours, in its dark theme); the **Mono / Color** button on the right switches to Mono: a flat warm paper page with near-black text and clear lines, in Monodesk and inside the apps.
 
+**Sleep an app:** when one app is lagging or using too much bandwidth (say, on a call), **Shift-click** its icon in the top bar to put it to sleep, and Shift-click again to wake it. Shift-clicking never switches apps. Asleep, the app's pages are unloaded: it uses no memory and no network, and the rest keep working. Its icon is dimmed, Home's panel for it says it's asleep, and opening it shows a **Wake** button. Waking reloads its tabs where they were (an open draft that wasn't saved is lost). Co-work and Claude Code sleep separately, apps stay asleep across restarts, and Dispatch keeps working whether Claude is asleep or not (it has its own hidden Claude windows). Opening a link or thread in a sleeping app wakes it.
+
+**What each app is using:** the **𝕸** menu lists every app with its live download and upload rate, how much it has downloaded since Monodesk started, CPU and memory, refreshed every two seconds while the menu is open, plus a sleep switch for each. **Dispatch bridge** is the phone app's hidden Claude windows; **Monodesk** is the shell itself plus Chromium's shared processes (browser, graphics, network). Network is counted inside Monodesk (including WhatsApp's live connection), so it won't match Task Manager exactly, but it shows which app is the heavy one; upload is approximate.
+
+**Zoom:** Ctrl + and Ctrl − make everything bigger or smaller, the top bar and every app at once, wherever you press them; Ctrl 0 goes back to 100%. Monodesk remembers the size.
+
 **Meetings:** today's meetings on your own calendar (timed ones, not all-day events) sit next to the date on Home ("University of Regina meeting · 8:30am"); in the other apps, the next one shows in grey beside the search button. They come from Google Calendar using the Mail tab's sign-in, so sign in to Gmail there first.
 
 **Home:**
@@ -43,6 +49,8 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 | New tab / close tab | Ctrl T / Ctrl W |
 | Split view (two apps side by side) | Ctrl \ |
 | Copy the open WhatsApp chat as text | Ctrl Shift E |
+| Zoom all of Monodesk in / out / back to 100% | Ctrl + / Ctrl − / Ctrl 0 |
+| Put an app to sleep, or wake it | Shift-click its icon |
 
 ## Make it yours
 
