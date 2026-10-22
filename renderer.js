@@ -43,6 +43,7 @@ const P = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   theme: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/>',
   pin: '<path d="M9 4h6l-1 6 4 3H6l4-3zM12 13v7"/>',
+  star: '<path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z"/>',
 };
 const I = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
 
@@ -255,7 +256,7 @@ function buildHome() {
         <div class="qb" id="q-mail"></div>
       </section>
       <section class="q" data-mod="notion">
-        <div class="qh"><span class="ic">${I('notion')}</span><span class="sub" id="pin-name" style="color:var(--fg);font-weight:600"></span><span class="sp"></span><button class="lnk" data-act="pin" title="Show the page that's open in Notion here">${I('pin')}</button><button class="lnk" data-act="open-pin">Open</button></div>
+        <div class="qh"><span class="ic">${I('notion')}</span><div class="favs" id="notion-favs"></div><span class="sp"></span><button class="lnk" data-act="fav" title="Add the page that's open in Notion to these favourites (press again to take it off)">${I('star')}</button><button class="lnk" data-act="open-pin">Open</button></div>
         <div class="qb qweb" id="q-notion"></div>
       </section>
       <section class="q" data-mod="claude" id="q-claude"></section>
@@ -359,7 +360,7 @@ let mini, miniSettled = 0;
 const pageId = (u) => (/([0-9a-f]{32})(?:[?#/]|$)/i.exec(String(u || '').replace(/-/g, '')) || [])[1];
 function buildNotionMini() {
   const pin = store.get('notionPin', null);
-  $('#pin-name').textContent = pin?.title || 'Notion · pin a page with the pin button';
+  drawFavs();
   mini = document.createElement('webview');
   mini.setAttribute('partition', 'persist:notion');
   mini.setAttribute('allowpopups', '');
@@ -376,13 +377,48 @@ function buildNotionMini() {
   $('#q-notion').appendChild(mini);
 }
 
-function pinNotionPage() {
+// Favourite Notion pages along the panel's top bar: click one to show it in the panel, × takes it off.
+// The star adds the page that's open in the Notion tab (or takes it off). A page pinned before favourites becomes the first one.
+function notionFavs() {
+  let favs = store.get('notionFavs', null);
+  if (!favs) { const p = store.get('notionPin', null); favs = p ? [p] : []; store.set('notionFavs', favs); }
+  return favs;
+}
+function drawFavs() {
+  const box = $('#notion-favs');
+  if (!box) return;
+  const favs = notionFavs(), cur = pageId(store.get('notionPin', null)?.url);
+  box.innerHTML = favs.length
+    ? favs.map((f, i) => `<button class="fav${pageId(f.url) === cur ? ' on' : ''}" data-act="fav-show" data-i="${i}" title="${esc(f.title)}"><span class="ft">${esc(f.title)}</span><span class="x" data-act="fav-del" data-i="${i}" title="Take off favourites">${I('x')}</span></button>`).join('')
+    : '<span class="sub">Open a page in Notion, then press the star to keep it here</span>';
+}
+function showNotionPage(p) {
+  if (!p) return;
+  store.set('notionPin', p);
+  mini?.loadURL(p.url);
+  drawFavs();
+}
+function favNotionPage() {
   const t = activeTab('notion');
-  if (!t || !pageId(t.url)) { toast('Open a page in Notion first, then press the pin.'); return; }
-  store.set('notionPin', { url: t.url, title: t.title });
-  $('#pin-name').textContent = t.title;
-  mini.loadURL(t.url);
-  toast(`Pinned “${t.title}” to Home`);
+  if (!t || !pageId(t.url)) { toast('Open a page in Notion first, then press the star.'); return; }
+  const favs = notionFavs(), i = favs.findIndex((f) => pageId(f.url) === pageId(t.url));
+  if (i >= 0) {
+    favs.splice(i, 1);
+    store.set('notionFavs', favs);
+    drawFavs();
+    toast(`Took “${t.title}” off favourites`);
+    return;
+  }
+  const p = { url: t.url, title: t.title };
+  store.set('notionFavs', [...favs, p]);
+  showNotionPage(p);
+  toast(`Added “${t.title}” to favourites`);
+}
+function unfavNotionPage(i) {
+  const favs = notionFavs();
+  favs.splice(i, 1);
+  store.set('notionFavs', favs);
+  drawFavs();
 }
 
 const blank = (msg = '') => `<div class="blank">${esc(msg)}</div>`;
@@ -855,7 +891,7 @@ function commands() {
     { ic: 'plus', t: 'New Claude chat', run: () => claudeMode('cowork', COWORK_URL) },
     { ic: 'term', t: 'Claude Code sessions', run: openCode },
     { ic: 'copy', t: 'Copy WhatsApp chat for Claude', k: 'Ctrl Shift E', run: openExport },
-    { ic: 'pin', t: 'Pin the open Notion page to Home', run: pinNotionPage },
+    { ic: 'star', t: 'Add the open Notion page to Home favourites', run: favNotionPage },
     { ic: 'pin', t: 'Pin the open WhatsApp chat to Home', run: pinWAChat },
     ...(TODO_DB ? [{ ic: 'plus', t: `New ${TODO_GROUP} to-do`, run: addTodo }] : []),
     { ic: 'claude', t: 'Run inbox triage', run: () => { go('home'); runTriage(); } },
@@ -1011,7 +1047,9 @@ document.addEventListener('click', (e) => {
     case 'new-chat': claudeMode('cowork', COWORK_URL); break;
     case 'code': openCode(); break;
     case 'claude-mode': claudeMode(d.which); break;
-    case 'pin': pinNotionPage(); break;
+    case 'fav': favNotionPage(); break;
+    case 'fav-show': showNotionPage(notionFavs()[+d.i]); break;
+    case 'fav-del': unfavNotionPage(+d.i); break;
     case 'wa-pin': pinWAChat(); break;
     case 'triage-run': runTriage(); break;
     case 'triage-open': openTriageInClaude(); break;

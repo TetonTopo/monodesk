@@ -28,7 +28,7 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 **Home:**
 - **WhatsApp:** unread chats on top, then your pinned chats. **Reply** sends a message without leaving Home, **Read** marks a chat read. Pin a chat by opening it in WhatsApp and pressing the pin on the panel; press again to unpin.
 - **Mail:** the latest important unread email in your Primary inbox (automated senders are skipped). **Mark as read** works while the Mail tab is showing your inbox.
-- **Notion:** a live copy of one page. Open a page in Notion and press the pin to show it here.
+- **Notion:** a live copy of one of your favourite pages, which sit along the panel's top bar: click one to show it. To add one, open the page in Notion and press the star (press it again to take it off); hover a favourite for its × to remove it.
 - **Claude:** with the **Dispatch** switch on, your three most recent Claude chats and Code sessions, like the Dispatch phone app: click one to read and reply, **New chat** and **All threads** in the fourth corner, and **Open** (on hover) to open it in Monodesk's Claude tab. **Run inbox triage** starts a triage there. With the switch off, it's the inbox-triage chat instead: **Run now**, **Open in Claude**, and a line that asks Claude anything.
 
 **Tabs:** Mail, Notion and Claude keep several tabs (Ctrl T new, Ctrl W close, middle-click closes). Co-work and Claude Code keep separate tabs, so switching never loses your place. Links to Notion, Gmail or Claude open in the right app's tab; other links open in your normal browser.

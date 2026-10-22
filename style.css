@@ -105,6 +105,16 @@ body.darwin .top{padding:0 10px 0 82px}
 .qh .ic{color:var(--ink); display:grid}
 .qh .sub{font-weight:400; color:var(--faint); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0}
 .qh .sp{flex:1}
+/* Notion favourites along the panel's top bar; the one showing is darker. Scrolls sideways if there are many. */
+.favs{display:flex; align-items:center; gap:2px; min-width:0; flex:0 1 auto; overflow-x:auto; scrollbar-width:none}
+.favs::-webkit-scrollbar{display:none}
+.fav{display:inline-flex; align-items:center; gap:1px; height:26px; padding:0 2px 0 8px; border-radius:7px; max-width:180px; flex:none; font-size:12.5px; font-weight:500; color:var(--muted)}
+.fav .ft{min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.fav:hover{background:var(--sunk); color:var(--fg)}
+.fav.on{background:var(--sunk); color:var(--fg); font-weight:600}
+.fav .x{opacity:0}
+.fav:hover .x{opacity:.55}
+.fav:not(:hover) .x{width:6px}
 .lnk{font-size:12.5px; color:var(--muted); padding:4px 8px; border-radius:6px; white-space:nowrap; flex:none}
 .lnk:hover{color:var(--fg); background:var(--sunk)}
 .qb{flex:1; min-height:0; overflow-y:auto}
