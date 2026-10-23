@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const { BrowserWindow } = require('electron');
 const updater = require('./updater');
+const whatsapp = require('./whatsapp');
 
 const PORT = 47800;
 const HOST = '127.0.0.1';
@@ -590,6 +591,17 @@ async function handle(req, res) {
   if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
   // Writes need a custom header, which a web page elsewhere can't add without a CORS preflight (never answered).
   if (req.method !== 'GET' && req.headers['x-monodesk'] !== '1') return send(res, 403, { error: 'Forbidden' });
+  // WhatsApp (read-only) is for the Monodesk MCP server. It also needs the header, even to read, so no web page can see your chats.
+  if (url.pathname.startsWith('/api/whatsapp/')) {
+    if (req.headers['x-monodesk'] !== '1') return send(res, 403, { error: 'Forbidden' });
+    try {
+      if (req.method === 'GET' && url.pathname === '/api/whatsapp/chats') return send(res, 200, await whatsapp.chats());
+      if (req.method === 'GET' && url.pathname === '/api/whatsapp/chat') return send(res, 200, await whatsapp.readChat(url.searchParams.get('name'), url.searchParams.get('limit')));
+      return send(res, 404, { error: 'Not found' });
+    } catch (e) {
+      return send(res, e.status >= 400 && e.status < 600 ? e.status : 500, { error: e.message || 'Something went wrong' });
+    }
+  }
   S.lastAsk = Date.now();
   try {
     if (req.method === 'GET' && url.pathname === '/api/threads') {

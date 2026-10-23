@@ -76,6 +76,32 @@ Monodesk runs a small server on `127.0.0.1:47800` for [Dispatch](https://github.
 2. Share the server on your tailnet: `tailscale serve --bg 47800`. Only devices signed in to your Tailscale can reach it.
 3. On the iPhone, see the Dispatch README to add it to the home screen.
 
+## Claude can read WhatsApp (MCP)
+
+`mcp/monodesk-mcp.js` is a small MCP server that lets Claude on this PC read WhatsApp through Monodesk. It works inside the WhatsApp tab that's already signed in, so WhatsApp never logs in anywhere new. It's read-only: Claude can list chats and read a chat's recent messages, never type or send. Two tools:
+
+- `whatsapp_list_chats`: the chats in WhatsApp's sidebar, with unread counts.
+- `whatsapp_read_chat`: one chat's recent messages (time, sender, text). The name can be partial ("moat" finds "THE MOAT").
+
+Reading a chat opens it in WhatsApp for a moment, like clicking it, so WhatsApp may mark it read. The chat you had open is opened again afterwards. Monodesk has to be running with WhatsApp awake.
+
+**Claude desktop app:** Settings → Developer → Edit Config, and add Monodesk to `mcpServers` (use your own folder path, with double backslashes):
+
+```json
+{
+  "mcpServers": {
+    "monodesk": {
+      "command": "node",
+      "args": ["C:\\Users\\dk\\Documents\\monodesk\\mcp\\monodesk-mcp.js"]
+    }
+  }
+}
+```
+
+Restart the Claude app. **Claude Code:** `claude mcp add monodesk -- node "C:\Users\dk\Documents\monodesk\mcp\monodesk-mcp.js"`.
+
+It needs no packages. Under the hood it calls the bridge's `/api/whatsapp/chats` and `/api/whatsapp/chat?name=…`, which only answer requests that carry the `x-monodesk: 1` header, so a web page can't read your chats.
+
 ## Privacy
 
 The folder holds only code. Your sign-ins, cookies, pinned chats and drafts live in `%APPDATA%\Monodesk` on your own computer and are never in the folder or the zip. Sharing the folder shares nothing personal. To sign everything out on a computer, quit Monodesk and delete `%APPDATA%\Monodesk`.
