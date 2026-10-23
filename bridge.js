@@ -117,6 +117,23 @@ async function pageReadCode(id) {
     status = b.type === 'tool_use' ? describe(b) : b.type === 'thinking' ? 'Thinking' : null;
     break;
   }
+  // A multiple-choice question Claude is waiting on (AskUserQuestion): a tool request nobody has answered yet,
+  // in the turn that's still open (no result after it).
+  const done = new Set(newest.filter((e) => e.event_type === 'control_response' || e.event_type === 'control_cancel_request').map((e) => e.payload?.response?.request_id || e.payload?.request_id));
+  let ask = null;
+  for (const e of newest) {
+    if (e.event_type === 'result') break;
+    const q = e.payload?.request;
+    if (e.event_type !== 'control_request' || q?.subtype !== 'can_use_tool' || q.tool_name !== 'AskUserQuestion' || done.has(e.payload.request_id)) continue;
+    ask = {
+      id: e.payload.request_id,
+      questions: (q.input?.questions || []).map((x) => ({
+        question: x.question || '', multi: !!x.multiSelect,
+        options: (x.options || []).map((o) => ({ label: o.label || '', description: o.description && o.description !== o.label ? o.description : '' })),
+      })),
+    };
+    break;
+  }
   const events = newest.reverse();
   const messages = [];
   for (const e of events) {
@@ -133,7 +150,127 @@ async function pageReadCode(id) {
     if (last && last.role === role && role === 'assistant') last.text += '\n\n' + text;
     else messages.push({ role, text });
   }
-  return { messages, status };
+  return { messages, status: ask ? null : status, ask };
+}
+
+// Co-work: a question Claude is waiting on lives only in the page that's streaming the reply, so it's read from
+// that page's question card. All of its questions are read by stepping through them, then it goes back to the first.
+// known: the card's signature from last time; if it hasn't changed, the page says so instead of stepping again.
+async function pageReadAsk(known) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const press = (b) => { const r = b.getBoundingClientRect(); const o = { bubbles: true, cancelable: true, view: window, button: 0, clientX: r.x + 5, clientY: r.y + 5 }; for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) b.dispatchEvent(new (t.startsWith('pointer') ? PointerEvent : MouseEvent)(t, o)); };
+  const card = () => document.querySelector('[data-cds="AskUserQuestion"]');
+  if (!card()) return null;
+  const read = () => {
+    const c = card();
+    const ids = (c.getAttribute('aria-labelledby') || '').split(' ');
+    const txt = (end) => document.getElementById(ids.find((i) => i.endsWith(end)) || '')?.innerText.trim() || '';
+    const options = [...c.querySelectorAll('[data-cds-option]')].map((o) => {
+      const lines = o.innerText.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (/^\d+$/.test(lines[0] || '')) lines.shift(); // the number key shown before each choice
+      return { label: lines[0] || '', description: lines.slice(1).join(' ') };
+    });
+    return { question: txt('-label'), multi: /one or more/i.test(txt('-cue')) || !!c.querySelector('[role="checkbox"]'), options, pos: txt('-position') };
+  };
+  const btn = (label) => document.querySelector(`[aria-label="${label}"]`);
+  const first = read();
+  const sig = [first.pos, first.question, first.options.map((o) => o.label).join('|')].join('\n');
+  if (known && known === sig) return { same: true, sig };
+  // Step back to the first question, then forward through all of them, then back again.
+  for (let i = 0; i < 12 && btn('Previous question') && !btn('Previous question').disabled; i++) { press(btn('Previous question')); await sleep(250); }
+  const questions = [read()];
+  for (let i = 0; i < 12 && btn('Next question') && !btn('Next question').disabled; i++) { press(btn('Next question')); await sleep(250); questions.push(read()); }
+  for (let i = 0; i < 12 && btn('Previous question') && !btn('Previous question').disabled; i++) { press(btn('Previous question')); await sleep(250); }
+  const head = read();
+  return { sig: [head.pos, head.question, head.options.map((o) => o.label).join('|')].join('\n'), questions: questions.map(({ pos, ...q }) => q) };
+}
+
+// Answers the question card on the page, the way you would: picks the choices for each question in order, types any
+// "something else" text, and presses Next / Submit. answers: [{ picks: [labels], other: '', multi }], or 'skip'.
+// Works on Co-work's card and on Claude Code's card (claude.ai/code), which look different.
+async function pageAnswer(answers) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const press = (b) => { const r = b.getBoundingClientRect(); const o = { bubbles: true, cancelable: true, view: window, button: 0, clientX: r.x + 5, clientY: r.y + 5 }; for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) b.dispatchEvent(new (t.startsWith('pointer') ? PointerEvent : MouseEvent)(t, o)); };
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const type = (input, text) => {
+    input.focus();
+    const proto = input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(input, text);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const hub = () => document.querySelector('[data-cds="AskUserQuestion"]');
+  const code = () => document.querySelector('[data-approval-presentation="card"][role="group"]');
+  const gone = async () => { for (let i = 0; i < 24; i++) { if (!hub() && !code()) return true; await sleep(250); } return false; };
+  let kind = null;
+  for (let i = 0; i < 120 && !kind; i++) { kind = hub() ? 'hub' : code() ? 'code' : null; if (!kind) await sleep(250); }
+  if (!kind) return { error: 'missing' };
+  await sleep(1200); // a page that just opened is still drawing the card
+  const card = kind === 'hub' ? hub : code;
+  // Which question is showing; null once the card has gone (answered).
+  const where = () => { const c = card(); return !c ? null : kind === 'hub' ? (c.getAttribute('aria-labelledby') || '').split(' ').map((id) => document.getElementById(id)?.innerText).join('|') : c.getAttribute('aria-label'); };
+  // Waits for the card to show the next question (or close), so the next picks land on the right one.
+  const moved = async (at) => { for (let i = 0; i < 16 && card() && where() === at; i++) await sleep(250); await sleep(300); };
+  const buttonText = (re) => [...(card()?.querySelectorAll('button') || [])].find((b) => re.test(b.innerText.trim()));
+  const prev = kind === 'hub' ? 'Previous question' : 'Show previous question';
+  for (let i = 0; i < 12; i++) { const p = document.querySelector(`[aria-label="${prev}"]`); if (!p || p.disabled) break; press(p); await sleep(250); }
+
+  if (answers === 'skip') {
+    for (let i = 0; i < 12 && card(); i++) {
+      const s = card().querySelector('[data-cds-footer="skip"]') || buttonText(/^skip$/i);
+      if (!s) break;
+      press(s);
+      await sleep(500);
+    }
+    return (await gone()) ? { ok: true } : { error: 'stuck' };
+  }
+
+  for (const a of answers) {
+    const c = card();
+    if (!c) break;
+    const at = where();
+    const picks = (a.picks || []).map(norm);
+    if (kind === 'hub') {
+      const label = (o) => { const l = o.innerText.split('\n').map((s) => s.trim()).filter(Boolean); if (/^\d+$/.test(l[0] || '')) l.shift(); return norm(l[0]); };
+      for (const o of [...c.querySelectorAll('[data-cds-option]')]) {
+        if (!o.isConnected) break;
+        const on = o.getAttribute('aria-pressed') === 'true' || o.getAttribute('aria-checked') === 'true';
+        if (picks.includes(label(o)) !== on) { press(o); await sleep(250); }
+        if (where() !== at) break; // a single choice moves on by itself
+      }
+      if (a.other && card() && where() === at) {
+        const input = card().querySelector('input[aria-label="Something else"], textarea[aria-label="Something else"]');
+        if (input) { type(input, a.other); await sleep(200); input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true })); await sleep(400); }
+      }
+      if (card() && where() === at) { const ok = card().querySelector('[data-cds-footer="confirm"]'); if (ok && !ok.disabled) { press(ok); await sleep(500); } }
+    } else {
+      // Pick, then look again: a click can land while the page is still redrawing, so it's repeated until it shows.
+      const opts = () => [...(card()?.querySelectorAll('button[aria-pressed]') || [])].filter((b) => !b.getAttribute('aria-label'));
+      for (let tries = 0; tries < 4; tries++) {
+        let pressed = false;
+        for (const o of opts()) {
+          const on = o.getAttribute('aria-pressed') === 'true';
+          const want = picks.some((p) => norm(o.innerText).startsWith(p));
+          // A single choice comes with the first one picked already; picking another replaces it.
+          if ((want && !on) || (!want && on && a.multi)) { press(o); pressed = true; await sleep(250); }
+        }
+        if (!pressed) break;
+        await sleep(450);
+      }
+      if (a.other) {
+        const other = c.querySelector('button[aria-label="Other"]');
+        if (other && other.getAttribute('aria-pressed') !== 'true') { press(other); await sleep(300); }
+        const input = card()?.querySelector('input:not([type="checkbox"]), textarea');
+        // Claude Code's card drops the picked choices once Other is on, so they go into the text too.
+        const lost = (a.picks || []).filter((p) => !opts().some((o) => norm(o.innerText).startsWith(norm(p)) && o.getAttribute('aria-pressed') === 'true'));
+        if (input) { type(input, [...lost, a.other].join(', ')); await sleep(200); }
+      }
+      if (!card()) break;
+      const next = buttonText(/^(next|submit)\b/i);
+      if (next && !next.disabled) press(next);
+    }
+    await moved(at);
+  }
+  return (await gone()) ? { ok: true } : { error: 'stuck' };
 }
 
 // Claude Code environments you can start a session in.
@@ -246,6 +383,7 @@ function view(name, url) {
   w = new BrowserWindow({ show: false, width: 1100, height: 900, webPreferences: { partition: 'persist:claude', backgroundThrottling: false, contextIsolation: true, nodeIntegration: false } });
   w.webContents.setAudioMuted(true);
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.born = Date.now();
   w.on('closed', () => views.delete(name));
   views.set(name, w);
   w.loadURL(url || ORIGIN + '/robots.txt');
@@ -267,7 +405,13 @@ const loaded = (w) => new Promise((res) => {
 async function run(w, fn, ...args) {
   await loaded(w);
   const src = typeof fn === 'string' ? fn : `(${fn})(${args.map((a) => JSON.stringify(a)).join(',')})`;
-  return w.webContents.executeJavaScript(src, true);
+  if (w.isDestroyed()) throw new Error('Claude’s window on the computer closed. Try again.');
+  // If the window closes mid-way, say so instead of waiting forever.
+  return new Promise((res, rej) => {
+    const closed = () => rej(new Error('Claude’s window on the computer closed. Try again.'));
+    w.once('closed', closed);
+    w.webContents.executeJavaScript(src, true).then(res, rej).finally(() => { if (!w.isDestroyed()) w.removeListener('closed', closed); });
+  });
 }
 
 /* ---------- thread state ---------- */
@@ -277,22 +421,59 @@ const keyOf = (kind, id) => `${kind}:${id}`;
 const urlOf = (kind, id) => `${ORIGIN}/${kind === 'code' ? 'code' : 'chat'}/${id}`;
 
 // One thread with its messages. t is { kind, id, title, t (updated), busy }; old is the last copy, kept if reading fails.
-async function readThread(t, old) {
+// top: it's one of the phone's cards, so it may get a hidden window of its own.
+async function readThread(t, old, top) {
   const key = keyOf(t.kind, t.id);
-  let messages = old?.messages || [], title = t.title, busy = false, status = null;
+  let messages = old?.messages || [], title = t.title, busy = false, status = null, ask = null;
   try {
     if (t.kind === 'cowork') {
       if (!S.org) await refresh();
       const r = await run(view('api'), pageReadChat, S.org, t.id);
       messages = r.messages; title = r.title || title; status = r.status;
-      const w = views.get(key);
-      busy = w && !w.isDestroyed() ? await run(w, pageBusy).catch(() => false) : messages.at(-1)?.role === 'user';
+      // A chat that ends with your message is either still working or waiting on a question, which only shows on
+      // the page, so a top thread like that gets its own hidden window to look.
+      let w = views.get(key);
+      if ((!w || w.isDestroyed()) && top && messages.at(-1)?.role === 'user') w = view(key, urlOf(t.kind, t.id));
+      const live = w && !w.isDestroyed();
+      busy = live ? await run(w, pageBusy).catch(() => false) : messages.at(-1)?.role === 'user';
+      if (live) ask = await readAsk(key, w);
     } else {
-      ({ messages, status } = await run(view('api'), pageReadCode, t.id));
+      ({ messages, status, ask } = await run(view('api'), pageReadCode, t.id));
       busy = !!t.busy;
     }
   } catch {}
-  return { key, kind: t.kind, id: t.id, title, updated: t.t, busy, status: busy ? status : null, url: urlOf(t.kind, t.id), messages: messages.slice(-KEEP_MESSAGES) };
+  if (ask) { busy = false; asking.add(key); } else asking.delete(key);
+  return { key, kind: t.kind, id: t.id, title, updated: t.t, busy, status: busy ? status : null, ask, url: urlOf(t.kind, t.id), messages: messages.slice(-KEEP_MESSAGES) };
+}
+
+// Threads with a question waiting, whose hidden windows must stay open (in Co-work the question lives only there).
+const asking = new Set();
+const askCache = new Map(); // key → { sig, ask }
+async function readAsk(key, w) {
+  const had = askCache.get(key);
+  const r = await run(w, pageReadAsk, had?.sig || '').catch(() => null);
+  if (!r) { askCache.delete(key); return null; }
+  if (r.same) return had.ask;
+  const ask = { id: r.sig, questions: r.questions };
+  askCache.set(key, { sig: r.sig, ask });
+  return ask;
+}
+
+// Your answers from the phone: [{ picks: [labels], other: '' }] in question order, or skip.
+async function answer(key, answers, skip) {
+  const [kind, id] = key.split(':');
+  if (!['cowork', 'code'].includes(kind) || !id) throw new Error('Unknown thread');
+  const t = S.threads.find((x) => x.key === key);
+  if (!skip && !Array.isArray(answers)) throw Object.assign(new Error('No answers'), { status: 400 });
+  const qs = t?.ask?.questions || [];
+  const list = skip ? 'skip' : answers.map((a, i) => ({ picks: (a?.picks || []).map(String), other: String(a?.other || ''), multi: !!qs[i]?.multi }));
+  const w = view(key, urlOf(kind, id)); // any claude.ai page with the thread open shows the question card
+  const r = await run(w, pageAnswer, list);
+  if (r.error === 'missing') throw Object.assign(new Error(kind === 'cowork' ? 'That question isn’t showing on the computer any more. Reply instead.' : 'Claude Code didn’t show the question on the computer. Try again in a moment.'), { status: 409 });
+  if (r.error) throw new Error('Answered on the computer, but the question is still showing there. Check it in Monodesk.');
+  askCache.delete(key);
+  setTimeout(() => refresh().catch(() => {}), 1500);
+  return { ok: true };
 }
 
 async function refresh() {
@@ -316,9 +497,11 @@ async function refresh() {
     const all = [...chats, ...code].sort((a, b) => b.t - a.t);
     S.history = all.map((t) => ({ key: keyOf(t.kind, t.id), kind: t.kind, title: t.title, updated: t.t }));
     const prev = new Map(S.threads.map((t) => [t.key, t]));
-    const next = await Promise.all(all.slice(0, TOP).map((t) => readThread(t, prev.get(keyOf(t.kind, t.id)))));
+    const next = await Promise.all(all.slice(0, TOP).map((t) => readThread(t, prev.get(keyOf(t.kind, t.id)), true)));
     // Hidden windows for threads that left the top four go away.
-    for (const name of [...views.keys()]) if (/^(cowork|code):/.test(name) && !next.some((t) => t.key === name)) closeView(name);
+    // A Co-work window with a question waiting stays: the question is only there.
+    // So does one opened in the last two minutes (a reply or answer from the phone may still be using it).
+    for (const [name, w] of [...views]) if (/^(cowork|code):/.test(name) && !next.some((t) => t.key === name) && !(name.startsWith('cowork:') && asking.has(name)) && !(Date.now() - (w.born || 0) < 120e3)) closeView(name);
     S.threads = next;
     S.error = failed;
   })().finally(() => { S.refreshing = null; });
@@ -627,6 +810,11 @@ async function handle(req, res) {
       const { text } = await readBody(req);
       if (!String(text || '').trim()) return send(res, 400, { error: 'Nothing to send' });
       return send(res, 200, await reply(decodeURIComponent(m[1]), String(text)));
+    }
+    const ans = /^\/api\/threads\/([^/]+)\/answer$/.exec(url.pathname);
+    if (req.method === 'POST' && ans) {
+      const { answers, skip } = await readBody(req);
+      return send(res, 200, await answer(decodeURIComponent(ans[1]), answers, !!skip));
     }
     if (req.method === 'POST' && url.pathname === '/api/new') {
       const { kind, text, env } = await readBody(req);

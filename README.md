@@ -76,6 +76,8 @@ Monodesk runs a small server on `127.0.0.1:47800` for [Dispatch](https://github.
 2. Share the server on your tailnet: `tailscale serve --bg 47800`. Only devices signed in to your Tailscale can reach it.
 3. On the iPhone, see the Dispatch README to add it to the home screen.
 
+When Claude stops to ask a multiple-choice question (in Co-work or Claude Code), Dispatch shows the questions with their choices; your answers are entered on claude.ai by Monodesk, in a hidden window, exactly as if you'd clicked them.
+
 ## Claude can read WhatsApp (MCP)
 
 `mcp/monodesk-mcp.js` is a small MCP server that lets Claude on this PC read WhatsApp through Monodesk. It works inside the WhatsApp tab that's already signed in, so WhatsApp never logs in anywhere new. It's read-only: Claude can list chats and read a chat's recent messages, never type or send. Two tools:
