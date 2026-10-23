@@ -284,6 +284,8 @@ const zzTip = (u) => (!UNITS.includes(u) ? '' : asleep(u) ? '\nAsleep · Shift-c
 function topbar() {
   const cur = S.panes[S.focus];
   const split = S.panes.length > 1;
+  // Its Ctrl number, shown only while Ctrl is held.
+  const num = (s) => SLOTS.includes(s) ? `<span class="num">${SLOTS.indexOf(s) + 1}</span>` : '';
   const apps = ORDER.map((m) => {
     const n = S.unread[m] || 0;
     const cls = m === cur ? 'on' : S.panes.includes(m) ? 'shown' : '';
@@ -292,11 +294,11 @@ function topbar() {
       const code = isCodeUrl(activeTab('claude')?.url);
       const c = (which) => (code === (which === 'code') ? cls : '') + (asleep(which) ? ' asleep' : '');
       const ready = (which) => { const r = S.tabs.claude.filter((t) => t.ready && sideOf(t) === which).length; return r ? `<span class="dot">${r}</span>` : ''; };
-      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Ctrl ${SLOTS.indexOf('cowork') + 1} · Alt 1–9 for recent chats, Alt 0 for a new one)${zzTip('cowork')}">${I('claude')}${ready('cowork')}</button>`
-        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Ctrl ${SLOTS.indexOf('code') + 1} · Alt 1–9 for recent sessions, Alt 0 for a new one)${zzTip('code')}">${I('term')}${ready('code')}</button>`;
+      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Ctrl ${SLOTS.indexOf('cowork') + 1} · Alt 1–9 for recent chats, Alt \` for a new one)${zzTip('cowork')}">${I('claude')}${ready('cowork')}${num('cowork')}</button>`
+        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Ctrl ${SLOTS.indexOf('code') + 1} · Alt 1–9 for recent sessions, Alt \` for a new one)${zzTip('code')}">${I('term')}${ready('code')}${num('code')}</button>`;
     }
-    return `<button class="abtn ${cls}${asleep(m) ? ' asleep' : ''}" data-act="go" data-mod="${m}" title="${APPS[m].name}  (Ctrl ${SLOTS.indexOf(m) + 1})${zzTip(m)}">${I(m)}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}</button>`;
-  }).join('') + (TODO_DB ? `<button class="abtn" data-act="add-todo" title="New ${esc(TODO_GROUP)} to-do">${I('plus')}</button>` : '');
+    return `<button class="abtn ${cls}${asleep(m) ? ' asleep' : ''}" data-act="go" data-mod="${m}" title="${APPS[m].name}  (Ctrl ${SLOTS.indexOf(m) + 1})${zzTip(m)}">${I(m)}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}${num(m)}</button>`;
+  }).join('');
 
   let mid = '';
   if (split) {
@@ -307,7 +309,6 @@ function topbar() {
     if (list.length > 1 || cur === 'notion') {
       mid += '<span class="sep"></span>' + list.map((t, i) => `<button class="ptab ${i === S.active[cur] ? 'on' : ''}${t.asleep ? ' asleep' : ''}" data-act="tab" data-mod="${cur}" data-i="${i}" title="${esc(t.title)}${t.asleep ? ' · asleep' : ''}">${t.ready ? '<span class="rdot"></span>' : ''}<span class="tt">${esc(t.title)}</span>${list.length > 1 ? `<span class="x" data-act="close-tab" data-mod="${cur}" data-i="${i}" title="Close tab (Ctrl W)">${I('x')}</span>` : ''}</button>`).join('');
     }
-    mid += `<button class="icbtn" data-act="new-tab" data-mod="${cur}" title="New ${APPS[cur].name} tab (Ctrl T)">${I('plus')}</button>`;
   }
 
   const tools = `
@@ -1277,24 +1278,26 @@ function shortcut(key) {
   else if (key === 'w') { if (APPS[cur]?.tabs) closeTab(cur, S.active[cur]); }
   else if (/^[1-9]$/.test(key) && SLOTS[+key - 1]) goSlot(SLOTS[+key - 1]);
   else if (key.startsWith('alt')) claudeAlt(key);
+  else if (key.startsWith('ctrl-')) ctrlHint(key);
   else if (key.startsWith('zoom')) zoom(key === 'zoom+' ? 1 : key === 'zoom-' ? -1 : 0);
 }
 
-/* Claude: hold Alt to number your recent chats (or Code sessions), Alt 1–9 to jump to one, Alt 0 for a new one. */
+/* Claude: hold Alt to number your recent chats (or Code sessions), Alt 1–9 to jump to one, Alt ` for a new one. */
 // Runs inside claude.ai: 'show' numbers the recent chats in the sidebar, 'hide' clears them, 'go' opens number n (0 = new).
 function claudeThreads(action, n) {
   document.querySelectorAll('.md-hint').forEach((e) => e.remove());
   if (action === 'hide') return true;
   const seen = new Set();
+  // Only real chats and sessions: not Artifacts, Routines, Projects and the other sidebar pages.
   const links = [...document.querySelectorAll('a[href]')].filter((a) => {
     const h = a.getAttribute('href').replace(/^https:\/\/claude\.ai/, '');
-    if (!/^\/(chat|code)\/[^/?#]+/.test(h) || seen.has(h)) return false;
+    if (!/^\/(chat\/[0-9a-f-]{36}|code\/session_\w+)/.test(h) || seen.has(h)) return false;
     const r = a.getBoundingClientRect();
     if (!r.width || !r.height) return false;
     seen.add(h);
     return true;
   }).slice(0, 9);
-  // 0 is a new chat (in Claude Code, a new session): claude.ai's own New link, or the page itself if the sidebar is shut.
+  // ` (sent as 0) is a new chat (in Claude Code, a new session): claude.ai's own New link, or the page itself if the sidebar is shut.
   const fresh = location.pathname.startsWith('/code') ? '/code' : '/new';
   const newLink = [...document.querySelectorAll('a[href]')].find((a) => a.getAttribute('href').replace(/^https:\/\/claude\.ai/, '') === fresh && a.getBoundingClientRect().width);
   if (action === 'go' && n === 0) { if (newLink) newLink.click(); else location.href = fresh; return true; }
@@ -1304,7 +1307,7 @@ function claudeThreads(action, n) {
     const r = a.getBoundingClientRect();
     const b = document.createElement('div');
     b.className = 'md-hint';
-    b.textContent = newLink ? i : i + 1;
+    b.textContent = newLink ? (i || '`') : i + 1;
     Object.assign(b.style, { position: 'fixed', left: Math.max(2, r.left + 4) + 'px', top: r.top + r.height / 2 - 9 + 'px', zIndex: 2147483647, minWidth: '18px', height: '18px', padding: '0 5px', borderRadius: '9px', background: '#ecebe8', color: '#121212', font: '600 11px/18px system-ui, sans-serif', textAlign: 'center', pointerEvents: 'none', boxShadow: '0 1px 4px rgba(0,0,0,.45)' });
     document.body.appendChild(b);
   });
@@ -1314,6 +1317,15 @@ function claudeThreads(action, n) {
   setTimeout(clear, 6000);
   return links.length;
 }
+
+/* Hold Ctrl: each app's Ctrl number fades in beside its icon. A short wait, so Ctrl C and the like don't flash them. */
+let ctrlTimer;
+function ctrlHint(what) {
+  clearTimeout(ctrlTimer);
+  if (what === 'ctrl-hold') ctrlTimer = setTimeout(() => $('#top').classList.add('ctrl-held'), 350);
+  else if (what === 'ctrl-up') $('#top').classList.remove('ctrl-held');
+}
+window.addEventListener('blur', () => ctrlHint('ctrl-up'));
 
 let hintTimer;
 function claudeAlt(key) {
@@ -1349,8 +1361,8 @@ window.md?.onSignedIn(({ mod, url }) => {
 window.md?.onCssChanged(() => { $('#shell-css').href = 'style.css?v=' + Date.now(); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') return closeLayer();
-  // Alt 0–9 while Claude is showing but the shell has the keyboard.
-  if (e.altKey && !e.ctrlKey && !e.metaKey && /^[0-9]$/.test(e.key) && S.panes[S.focus] === 'claude') { e.preventDefault(); shortcut('alt+' + e.key); return; }
+  // Alt 1–9 and Alt ` while Claude is showing but the shell has the keyboard.
+  if (e.altKey && !e.ctrlKey && !e.metaKey && (/^[1-9]$/.test(e.key) || e.code === 'Backquote' || e.key === '`') && S.panes[S.focus] === 'claude') { e.preventDefault(); shortcut('alt+' + ((e.code === 'Backquote' || e.key === '`') ? 0 : e.key)); return; }
   if (!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
   if (e.shiftKey && k === 'e') { e.preventDefault(); shortcut('shift+e'); }

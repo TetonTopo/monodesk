@@ -2,8 +2,8 @@
 // Updates replace this file but never config.js.
 // Sign-ins, pinned chats and drafts are not stored here. They stay in Windows, in %APPDATA%\Monodesk.
 window.MONODESK_CONFIG = {
-  // The + in the top bar adds a card to this Notion board, in the column named below.
-  // Paste the link to your to-do board (a database shown as a board). Leave it '' to hide the +.
+  // "New to-do" in the Ctrl K menu adds a card to this Notion board, in the column named below.
+  // Paste the link to your to-do board (a database shown as a board). Leave it '' to hide it.
   todoBoard: '',
   todoColumn: 'Soon',
 

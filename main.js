@@ -238,6 +238,14 @@ app.on('web-contents-created', (_event, contents) => {
     setImmediate(() => usage.watch(contents));
     contents.once('did-start-loading', () => usage.watch(contents));
   }
+  // Holding Ctrl shows each app's number in the top bar; any other key with it (Ctrl C, Ctrl 3...) cancels the wait.
+  contents.on('before-input-event', (event, input) => {
+    if (contents !== win?.webContents && contents.getType() !== 'webview') return;
+    if (input.key === 'Control') {
+      if (input.type === 'keyUp') win?.webContents.send('shortcut', 'ctrl-up');
+      else if (!input.isAutoRepeat && !input.alt && !input.shift) win?.webContents.send('shortcut', 'ctrl-hold');
+    } else if (input.type === 'keyDown' && input.control) win?.webContents.send('shortcut', 'ctrl-other');
+  });
   // Ctrl + / Ctrl − / Ctrl 0 zoom all of Monodesk at once, the shell and every app, wherever you press them.
   contents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
@@ -292,16 +300,16 @@ app.on('web-contents-created', (_event, contents) => {
 
   // Keystrokes inside an app never reach the shell, so forward Monodesk's shortcuts from here.
   contents.on('before-input-event', (event, input) => {
-    // Claude: hold Alt to number recent chats, Alt 1–9 to open one, Alt 0 for a new one. AltGr (Ctrl+Alt) is left alone for typing.
+    // Claude: hold Alt to number recent chats, Alt 1–9 to open one, Alt ` for a new one. AltGr (Ctrl+Alt) is left alone for typing.
     if (appOf(contents) === 'claude' && !input.control && !input.meta) {
       const tag = '@' + contents.id;
       if (input.key === 'Alt') {
         win?.webContents.send('shortcut', (input.type === 'keyDown' ? (input.isAutoRepeat ? '' : 'alt-hold') : 'alt-up') + tag);
         return;
       }
-      if (input.type === 'keyDown' && input.alt && !input.shift && /^[0-9]$/.test(input.key)) {
+      if (input.type === 'keyDown' && input.alt && !input.shift && (/^[1-9]$/.test(input.key) || input.code === 'Backquote' || input.key === '`')) {
         event.preventDefault();
-        win?.webContents.send('shortcut', 'alt+' + input.key + tag);
+        win?.webContents.send('shortcut', 'alt+' + ((input.code === 'Backquote' || input.key === '`') ? 0 : input.key) + tag);
         return;
       }
     }
