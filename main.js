@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, clipboard, shell, nativeTheme, session, webContents } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, clipboard, shell, nativeTheme, session, webContents, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const vm = require('vm');
@@ -44,6 +44,19 @@ function showWin() {
   win.show();
   win.focus();
 }
+
+// From any app: Ctrl Alt M brings Monodesk up, Ctrl Alt 1–9 brings it up on that app (the same numbers as Ctrl 1–9 inside).
+// A combo another program already holds is skipped. Layouts that type with AltGr lose those Ctrl Alt keys while Monodesk runs.
+function globalKeys() {
+  globalShortcut.register('Control+Alt+M', showWin);
+  for (let n = 1; n <= 9; n++) {
+    globalShortcut.register('Control+Alt+' + n, () => {
+      showWin();
+      win?.webContents.send('shortcut', String(n));
+    });
+  }
+}
+app.on('will-quit', () => globalShortcut.unregisterAll());
 
 function makeTray() {
   tray = new Tray(ICON);
@@ -402,6 +415,7 @@ app.whenReady().then(() => {
   nativeTheme.themeSource = 'dark'; // Monodesk opens in Color, with every app in its dark theme
   createWindow();
   makeTray();
+  globalKeys();
   writeShortcuts();
   watchForUpdates();
   // The phone app, at http://127.0.0.1:47800 (tailscale serve shares it with your devices).

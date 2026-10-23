@@ -46,6 +46,7 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 | Search and commands | Ctrl K |
 | Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Google Calendar | Ctrl 1–7 |
 | Timeline (only if `timelineUrl` is set in your config.js) | Ctrl 8 |
+| From any other program: bring up Monodesk / bring it up on an app | Ctrl Alt M / Ctrl Alt 1–8 |
 | Show each app's number in the top bar | Hold Ctrl |
 | In Claude: number recent chats / jump to one (1 = most recent) / start a new one | Hold Alt / Alt 1–9 / Alt ` |
 | New tab / close tab | Ctrl T / Ctrl W |
