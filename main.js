@@ -16,7 +16,7 @@ const ALLOWED_PERMISSIONS = ['notifications', 'media', 'clipboard-read', 'clipbo
 const OWN_HOSTS = { mail: /^mail\.google\.com$/, notion: /(^|\.)notion\.(so|com)$/, claude: /(^|\.)claude\.ai$/ };
 // Sign-in pages open as small popups that share the app's session. Every other link goes to your normal browser.
 const POPUP_HOSTS = [/(^|\.)accounts\.google\.com$/, /(^|\.)notion\.(so|com)$/, /(^|\.)claude\.ai$/, /(^|\.)anthropic\.com$/, /(^|\.)appleid\.apple\.com$/, /(^|\.)login\.microsoftonline\.com$/];
-const SHORTCUT_KEYS = ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7'];
+const SHORTCUT_KEYS = ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7', '8'];
 // The shell stays dark in both modes.
 const OVERLAY = { color: '#121212', symbolColor: '#9c9a95', height: 40 };
 const ICON = path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png');

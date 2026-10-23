@@ -13,11 +13,16 @@ const APPS = {
   // WhatsApp Web only allows one open window, so it gets no tabs.
   wa: { name: 'WhatsApp', url: 'https://web.whatsapp.com/', tabs: false },
   // Google Calendar shares the Mail tab's Google sign-in.
-  cal: { name: 'Calendar', url: 'https://calendar.google.com/calendar/u/0/r', tabs: false, partition: 'mail' },
+  cal: { name: 'Google Calendar', url: 'https://calendar.google.com/calendar/u/0/r', tabs: false, partition: 'mail' },
 };
-const ORDER = ['home', 'mail', 'notion', 'claude', 'wa', 'cal'];
-// Ctrl 1–7. Claude takes two numbers: Co-work and Claude Code.
-const SLOTS = ['home', 'mail', 'notion', 'cowork', 'code', 'wa', 'cal'];
+// Your own timeline: a private claude.ai artifact, opened with the Claude sign-in. It gets a tab (Ctrl 8) only when
+// your config.js has its link, and config.js is never shared, so nobody else's Monodesk shows it. Even with the link,
+// claude.ai opens a private artifact only for its owner.
+const TL_URL = /^https:\/\/claude\.ai\/artifact\/\w+/.test(CFG.timelineUrl || '') ? CFG.timelineUrl.trim() : '';
+if (TL_URL) APPS.tl = { name: 'Timeline', url: TL_URL, tabs: false, partition: 'claude' };
+const ORDER = ['home', 'mail', 'notion', 'claude', 'wa', 'cal', ...(TL_URL ? ['tl'] : [])];
+// Ctrl 1–8. Claude takes two numbers: Co-work and Claude Code.
+const SLOTS = ['home', 'mail', 'notion', 'cowork', 'code', 'wa', 'cal', ...(TL_URL ? ['tl'] : [])];
 const SLOT_NAMES = { cowork: 'Co-work', code: 'Claude Code' };
 const goSlot = (s) => (s === 'cowork' || s === 'code' ? claudeMode(s) : go(s));
 const WEB = ORDER.filter((m) => APPS[m].url);
@@ -34,7 +39,10 @@ const P = {
   notion: '<path d="M4.5 5.2L16 4l3.5 3v12.6L8 20.3l-3.5-3.7z"/><path d="M4.5 5.2L8 8.4l11.5-1.4M8 8.4v11.9"/><path d="M10.8 17.4v-6.2l5.2 6.4v-6.8"/>',
   claude: '<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4"/>',
   wa: '<path d="M4 5h16v11H9l-5 4z"/>',
-  cal: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  // Google Calendar: a calendar page with a G on it.
+  cal: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M14.3 12.9A3 3 0 1 0 15 14.9h-2.6"/>',
+  // Your timeline: a calendar page with a star on it.
+  tl: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M12 11.2l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.3-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
   split: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
@@ -1267,7 +1275,7 @@ function shortcut(key) {
   else if (key === 'shift+e') openExport();
   else if (key === 't') newTab(APPS[cur]?.tabs ? cur : 'notion');
   else if (key === 'w') { if (APPS[cur]?.tabs) closeTab(cur, S.active[cur]); }
-  else if (/^[1-7]$/.test(key)) goSlot(SLOTS[+key - 1]);
+  else if (/^[1-9]$/.test(key) && SLOTS[+key - 1]) goSlot(SLOTS[+key - 1]);
   else if (key.startsWith('alt')) claudeAlt(key);
   else if (key.startsWith('zoom')) zoom(key === 'zoom+' ? 1 : key === 'zoom-' ? -1 : 0);
 }
@@ -1310,6 +1318,8 @@ function claudeThreads(action, n) {
 let hintTimer;
 function claudeAlt(key) {
   const [what, id] = key.split('@');
+  // Alt in the Timeline tab (it shares Claude's sign-in) leaves the hidden Claude tabs alone.
+  if (id && String(S.tabs.tl?.[0]?.wv.getWebContentsId?.()) === id) return;
   const wv = [...S.tabs.claude.map((t) => t.wv), triage].find((w) => w && String(w.getWebContentsId?.()) === id) || activeWv('claude');
   const run = (action, n) => wv.executeJavaScript(`(${claudeThreads})(${JSON.stringify(action)}, ${n || 0})`).catch(() => {});
   clearTimeout(hintTimer);
@@ -1344,7 +1354,7 @@ document.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
   if (e.shiftKey && k === 'e') { e.preventDefault(); shortcut('shift+e'); }
-  else if (!e.shiftKey && ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7'].includes(k)) { e.preventDefault(); shortcut(k); }
+  else if (!e.shiftKey && ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7', '8'].includes(k)) { e.preventDefault(); shortcut(k); }
 });
 
 /* ---------- start: reopen the tabs from last time ---------- */

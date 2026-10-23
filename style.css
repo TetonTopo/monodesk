@@ -23,6 +23,7 @@
 :root[data-mode="color"] [data-mod="claude"]{ --ink:#d97757; --ink-fg:#1f120c }
 :root[data-mode="color"] [data-mod="wa"]{ --ink:#25d366; --ink-fg:#06281a }
 :root[data-mode="color"] [data-mod="cal"]{ --ink:#4285f4; --ink-fg:#0b1a33 }
+:root[data-mode="color"] [data-mod="tl"]{ --ink:#a597ff; --ink-fg:#17123a }
 
 *{box-sizing:border-box}
 html,body{height:100%; margin:0}
