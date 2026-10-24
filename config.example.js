@@ -21,6 +21,6 @@ window.MONODESK_CONFIG = {
   // Dispatch lists only the voices in this ElevenLabs collection (My Voices → Collections), if it exists.
   elevenLabsCollection: 'dispatch',
   // Your private timeline (Paetra, China shipment and outreach in one view): paste its claude.ai artifact link and
-  // a star-calendar tab appears after Google Calendar (Ctrl 8). Leave it '' and there's no tab.
+  // a star-calendar tab appears after Google Calendar (Alt 7). Leave it '' and there's no tab.
   timelineUrl: '',
 };
