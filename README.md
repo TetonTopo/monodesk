@@ -44,11 +44,12 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 | Action | Keys |
 | --- | --- |
 | Search and commands | Ctrl K |
-| Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Google Calendar | Ctrl 1–7 |
-| Timeline (only if `timelineUrl` is set in your config.js) | Ctrl 8 |
-| From any other program: bring up Monodesk / bring it up on an app | Ctrl Alt M / Ctrl Alt 1–8 |
-| Show each app's number in the top bar | Hold Ctrl |
-| In Claude: number recent chats / jump to one (1 = most recent) / start a new one | Hold Alt / Alt 1–9 / Alt ` |
+| Home | Alt ` (the key left of 1) |
+| Mail, Notion, Co-work, Claude Code, WhatsApp, Google Calendar | Alt 1–6 |
+| Timeline (only if `timelineUrl` is set in your config.js) | Alt 7 |
+| From any other program: bring up Monodesk / bring it up on an app | Ctrl Alt M / Ctrl Alt ` and Ctrl Alt 1–7 |
+| Show each app's number in the top bar | Hold Alt |
+| In Claude: number recent chats / jump to one (1 = most recent) / start a new one | Hold Ctrl / Ctrl 1–9 / Ctrl ` |
 | New tab / close tab | Ctrl T / Ctrl W |
 | Split view (two apps side by side) | Ctrl \ |
 | Copy the open WhatsApp chat as text | Ctrl Shift E |

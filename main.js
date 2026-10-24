@@ -16,7 +16,9 @@ const ALLOWED_PERMISSIONS = ['notifications', 'media', 'clipboard-read', 'clipbo
 const OWN_HOSTS = { mail: /^mail\.google\.com$/, notion: /(^|\.)notion\.(so|com)$/, claude: /(^|\.)claude\.ai$/ };
 // Sign-in pages open as small popups that share the app's session. Every other link goes to your normal browser.
 const POPUP_HOSTS = [/(^|\.)accounts\.google\.com$/, /(^|\.)notion\.(so|com)$/, /(^|\.)claude\.ai$/, /(^|\.)anthropic\.com$/, /(^|\.)appleid\.apple\.com$/, /(^|\.)login\.microsoftonline\.com$/];
-const SHORTCUT_KEYS = ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7', '8'];
+const SHORTCUT_KEYS = ['k', '\\', 't', 'w'];
+// Alt ` / Alt 1–9 (and Ctrl ` / Ctrl 1–9 in Claude): ` is 0.
+const numKey = (input) => (input.code === 'Backquote' || input.key === '`' ? 0 : /^[1-9]$/.test(input.key) ? +input.key : -1);
 // The shell stays dark in both modes.
 const OVERLAY = { color: '#121212', symbolColor: '#9c9a95', height: 40 };
 const ICON = path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png');
@@ -45,15 +47,17 @@ function showWin() {
   win.focus();
 }
 
-// From any app: Ctrl Alt M brings Monodesk up, Ctrl Alt 1–9 brings it up on that app (the same numbers as Ctrl 1–9 inside).
+// From any app: Ctrl Alt M brings Monodesk up, Ctrl Alt ` / Ctrl Alt 1–9 brings it up on that app (the same numbers as Alt ` / Alt 1–9 inside).
 // A combo another program already holds is skipped. Layouts that type with AltGr lose those Ctrl Alt keys while Monodesk runs.
 function globalKeys() {
   globalShortcut.register('Control+Alt+M', showWin);
-  for (let n = 1; n <= 9; n++) {
-    globalShortcut.register('Control+Alt+' + n, () => {
-      showWin();
-      win?.webContents.send('shortcut', String(n));
-    });
+  for (let n = 0; n <= 9; n++) {
+    try {
+      globalShortcut.register('Control+Alt+' + (n || '`'), () => {
+        showWin();
+        win?.webContents.send('shortcut', 'app:' + n);
+      });
+    } catch {}
   }
 }
 app.on('will-quit', () => globalShortcut.unregisterAll());
@@ -251,13 +255,26 @@ app.on('web-contents-created', (_event, contents) => {
     setImmediate(() => usage.watch(contents));
     contents.once('did-start-loading', () => usage.watch(contents));
   }
-  // Holding Ctrl shows each app's number in the top bar; any other key with it (Ctrl C, Ctrl 3...) cancels the wait.
+  // Alt ` is Home, Alt 1–9 the other apps, wherever you press it. Holding Alt shows each app's number in the top bar;
+  // any other key with it cancels the wait. AltGr (Ctrl+Alt) is left alone for typing.
   contents.on('before-input-event', (event, input) => {
     if (contents !== win?.webContents && contents.getType() !== 'webview') return;
-    if (input.key === 'Control') {
-      if (input.type === 'keyUp') win?.webContents.send('shortcut', 'ctrl-up');
-      else if (!input.isAutoRepeat && !input.alt && !input.shift) win?.webContents.send('shortcut', 'ctrl-hold');
-    } else if (input.type === 'keyDown' && input.control) win?.webContents.send('shortcut', 'ctrl-other');
+    // The shell has the keyboard (you clicked the top bar): holding Ctrl still numbers Claude's chats while Claude is in front.
+    if (contents === win?.webContents && !input.alt && !input.meta) {
+      if (input.key === 'Control') win?.webContents.send('shortcut', input.type === 'keyUp' ? 'chat-up' : input.isAutoRepeat || input.shift ? '' : 'chat-hold');
+      else if (input.type === 'keyDown' && input.control && numKey(input) < 0) win?.webContents.send('shortcut', 'chat-other');
+    }
+    if (input.control || input.meta) return;
+    if (input.key === 'Alt') {
+      if (input.type === 'keyUp') win?.webContents.send('shortcut', 'alt-up');
+      else if (!input.isAutoRepeat && !input.shift) win?.webContents.send('shortcut', 'alt-hold');
+      return;
+    }
+    if (input.type !== 'keyDown' || !input.alt) return;
+    const n = input.shift ? -1 : numKey(input);
+    if (n < 0) return win?.webContents.send('shortcut', 'alt-other');
+    event.preventDefault();
+    win?.webContents.send('shortcut', 'app:' + n);
   });
   // Ctrl + / Ctrl − / Ctrl 0 zoom all of Monodesk at once, the shell and every app, wherever you press them.
   contents.on('before-input-event', (event, input) => {
@@ -313,17 +330,22 @@ app.on('web-contents-created', (_event, contents) => {
 
   // Keystrokes inside an app never reach the shell, so forward Monodesk's shortcuts from here.
   contents.on('before-input-event', (event, input) => {
-    // Claude: hold Alt to number recent chats, Alt 1–9 to open one, Alt ` for a new one. AltGr (Ctrl+Alt) is left alone for typing.
-    if (appOf(contents) === 'claude' && !input.control && !input.meta) {
+    // Claude: hold Ctrl to number recent chats, Ctrl 1–9 to open one, Ctrl ` for a new one. Any other Ctrl key (Ctrl C...) cancels the numbers.
+    if (appOf(contents) === 'claude' && !input.alt && !input.meta) {
       const tag = '@' + contents.id;
-      if (input.key === 'Alt') {
-        win?.webContents.send('shortcut', (input.type === 'keyDown' ? (input.isAutoRepeat ? '' : 'alt-hold') : 'alt-up') + tag);
+      if (input.key === 'Control') {
+        if (input.type === 'keyUp') win?.webContents.send('shortcut', 'chat-up' + tag);
+        else if (!input.isAutoRepeat && !input.shift) win?.webContents.send('shortcut', 'chat-hold' + tag);
         return;
       }
-      if (input.type === 'keyDown' && input.alt && !input.shift && (/^[1-9]$/.test(input.key) || input.code === 'Backquote' || input.key === '`')) {
-        event.preventDefault();
-        win?.webContents.send('shortcut', 'alt+' + ((input.code === 'Backquote' || input.key === '`') ? 0 : input.key) + tag);
-        return;
+      if (input.type === 'keyDown' && input.control) {
+        const n = input.shift ? -1 : numKey(input);
+        if (n >= 0) {
+          event.preventDefault();
+          win?.webContents.send('shortcut', 'chat+' + n + tag);
+          return;
+        }
+        win?.webContents.send('shortcut', 'chat-other' + tag);
       }
     }
     if (input.type !== 'keyDown' || !(input.control || input.meta)) return;

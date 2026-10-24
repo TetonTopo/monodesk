@@ -15,15 +15,16 @@ const APPS = {
   // Google Calendar shares the Mail tab's Google sign-in.
   cal: { name: 'Google Calendar', url: 'https://calendar.google.com/calendar/u/0/r', tabs: false, partition: 'mail' },
 };
-// Your own timeline: a private claude.ai artifact, opened with the Claude sign-in. It gets a tab (Ctrl 8) only when
+// Your own timeline: a private claude.ai artifact, opened with the Claude sign-in. It gets a tab (Alt 7) only when
 // your config.js has its link, and config.js is never shared, so nobody else's Monodesk shows it. Even with the link,
 // claude.ai opens a private artifact only for its owner.
 const TL_URL = /^https:\/\/claude\.ai\/artifact\/\w+/.test(CFG.timelineUrl || '') ? CFG.timelineUrl.trim() : '';
 if (TL_URL) APPS.tl = { name: 'Timeline', url: TL_URL, tabs: false, partition: 'claude' };
 const ORDER = ['home', 'mail', 'notion', 'claude', 'wa', 'cal', ...(TL_URL ? ['tl'] : [])];
-// Ctrl 1–8. Claude takes two numbers: Co-work and Claude Code.
+// Alt ` for Home, Alt 1–7 for the rest. Claude takes two numbers: Co-work and Claude Code.
 const SLOTS = ['home', 'mail', 'notion', 'cowork', 'code', 'wa', 'cal', ...(TL_URL ? ['tl'] : [])];
 const SLOT_NAMES = { cowork: 'Co-work', code: 'Claude Code' };
+const keyOf = (s) => (SLOTS.indexOf(s) ? String(SLOTS.indexOf(s)) : '`'); // Home is `
 const goSlot = (s) => (s === 'cowork' || s === 'code' ? claudeMode(s) : go(s));
 const WEB = ORDER.filter((m) => APPS[m].url);
 const MAX_TABS = 12;
@@ -284,8 +285,8 @@ const zzTip = (u) => (!UNITS.includes(u) ? '' : asleep(u) ? '\nAsleep · Shift-c
 function topbar() {
   const cur = S.panes[S.focus];
   const split = S.panes.length > 1;
-  // Its Ctrl number, shown only while Ctrl is held.
-  const num = (s) => SLOTS.includes(s) ? `<span class="num">${SLOTS.indexOf(s) + 1}</span>` : '';
+  // Its Alt number, shown only while Alt is held.
+  const num = (s) => SLOTS.includes(s) ? `<span class="num">${keyOf(s)}</span>` : '';
   const apps = ORDER.map((m) => {
     const n = S.unread[m] || 0;
     const cls = m === cur ? 'on' : S.panes.includes(m) ? 'shown' : '';
@@ -294,10 +295,10 @@ function topbar() {
       const code = isCodeUrl(activeTab('claude')?.url);
       const c = (which) => (code === (which === 'code') ? cls : '') + (asleep(which) ? ' asleep' : '');
       const ready = (which) => { const r = S.tabs.claude.filter((t) => t.ready && sideOf(t) === which).length; return r ? `<span class="dot">${r}</span>` : ''; };
-      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Ctrl ${SLOTS.indexOf('cowork') + 1} · Alt 1–9 for recent chats, Alt \` for a new one)${zzTip('cowork')}">${I('claude')}${ready('cowork')}${num('cowork')}</button>`
-        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Ctrl ${SLOTS.indexOf('code') + 1} · Alt 1–9 for recent sessions, Alt \` for a new one)${zzTip('code')}">${I('term')}${ready('code')}${num('code')}</button>`;
+      return `<button class="abtn ${c('cowork')}" data-act="claude-mode" data-which="cowork" data-mod="claude" title="Co-work  (Alt ${keyOf('cowork')} · Ctrl 1–9 for recent chats, Ctrl \` for a new one)${zzTip('cowork')}">${I('claude')}${ready('cowork')}${num('cowork')}</button>`
+        + `<button class="abtn ${c('code')}" data-act="claude-mode" data-which="code" data-mod="claude" title="Claude Code  (Alt ${keyOf('code')} · Ctrl 1–9 for recent sessions, Ctrl \` for a new one)${zzTip('code')}">${I('term')}${ready('code')}${num('code')}</button>`;
     }
-    return `<button class="abtn ${cls}${asleep(m) ? ' asleep' : ''}" data-act="go" data-mod="${m}" title="${APPS[m].name}  (Ctrl ${SLOTS.indexOf(m) + 1})${zzTip(m)}">${I(m)}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}${num(m)}</button>`;
+    return `<button class="abtn ${cls}${asleep(m) ? ' asleep' : ''}" data-act="go" data-mod="${m}" title="${APPS[m].name}  (Alt ${keyOf(m)})${zzTip(m)}">${I(m)}${n ? `<span class="dot">${n > 99 ? '99+' : n}</span>` : ''}${num(m)}</button>`;
   }).join('');
 
   let mid = '';
@@ -1028,7 +1029,7 @@ function claudeMode(which, url) {
 function commands() {
   const cur = S.panes[S.focus];
   return [
-    ...SLOTS.map((s, k) => ({ ic: s === 'cowork' ? 'claude' : s === 'code' ? 'term' : s, t: 'Go to ' + (SLOT_NAMES[s] || APPS[s].name), k: 'Ctrl ' + (k + 1), run: () => goSlot(s) })),
+    ...SLOTS.map((s, k) => ({ ic: s === 'cowork' ? 'claude' : s === 'code' ? 'term' : s, t: 'Go to ' + (SLOT_NAMES[s] || APPS[s].name), k: 'Alt ' + keyOf(s), run: () => goSlot(s) })),
     { ic: 'plus', t: 'New Notion tab', run: () => newTab('notion') },
     { ic: 'edit', t: 'Compose email', run: compose },
     { ic: 'plus', t: 'New Claude chat', run: () => claudeMode('cowork', COWORK_URL) },
@@ -1276,13 +1277,13 @@ function shortcut(key) {
   else if (key === 'shift+e') openExport();
   else if (key === 't') newTab(APPS[cur]?.tabs ? cur : 'notion');
   else if (key === 'w') { if (APPS[cur]?.tabs) closeTab(cur, S.active[cur]); }
-  else if (/^[1-9]$/.test(key) && SLOTS[+key - 1]) goSlot(SLOTS[+key - 1]);
-  else if (key.startsWith('alt')) claudeAlt(key);
-  else if (key.startsWith('ctrl-')) ctrlHint(key);
+  else if (key.startsWith('app:')) { const s = SLOTS[+key.slice(4)]; if (s) goSlot(s); }
+  else if (key.startsWith('chat')) claudeChat(key);
+  else if (key.startsWith('alt-')) altHint(key);
   else if (key.startsWith('zoom')) zoom(key === 'zoom+' ? 1 : key === 'zoom-' ? -1 : 0);
 }
 
-/* Claude: hold Alt to number your recent chats (or Code sessions), Alt 1–9 to jump to one, Alt ` for a new one. */
+/* Claude: hold Ctrl to number your recent chats (or Code sessions), Ctrl 1–9 to jump to one, Ctrl ` for a new one. */
 // Runs inside claude.ai: 'show' numbers the recent chats in the sidebar, 'hide' clears them, 'go' opens number n (0 = new).
 function claudeThreads(action, n) {
   document.querySelectorAll('.md-hint').forEach((e) => e.remove());
@@ -1318,27 +1319,29 @@ function claudeThreads(action, n) {
   return links.length;
 }
 
-/* Hold Ctrl: each app's Ctrl number fades in beside its icon. A short wait, so Ctrl C and the like don't flash them. */
-let ctrlTimer;
-function ctrlHint(what) {
-  clearTimeout(ctrlTimer);
-  if (what === 'ctrl-hold') ctrlTimer = setTimeout(() => $('#top').classList.add('ctrl-held'), 350);
-  else if (what === 'ctrl-up') $('#top').classList.remove('ctrl-held');
+/* Hold Alt: each app's Alt number fades in beside its icon. A short wait, so a quick Alt+Tab doesn't flash them. */
+let altTimer;
+function altHint(what) {
+  clearTimeout(altTimer);
+  if (what === 'alt-hold') altTimer = setTimeout(() => $('#top').classList.add('alt-held'), 350);
+  else $('#top').classList.remove('alt-held');
 }
-window.addEventListener('blur', () => ctrlHint('ctrl-up'));
+window.addEventListener('blur', () => altHint('alt-up'));
 
 let hintTimer;
-function claudeAlt(key) {
+function claudeChat(key) {
   const [what, id] = key.split('@');
-  // Alt in the Timeline tab (it shares Claude's sign-in) leaves the hidden Claude tabs alone.
+  // Ctrl from the shell counts only while Claude is the app in front.
+  if (!id && what !== 'chat-up' && S.panes[S.focus] !== 'claude') return;
+  // Ctrl in the Timeline tab (it shares Claude's sign-in) leaves the hidden Claude tabs alone.
   if (id && String(S.tabs.tl?.[0]?.wv.getWebContentsId?.()) === id) return;
   const wv = [...S.tabs.claude.map((t) => t.wv), triage].find((w) => w && String(w.getWebContentsId?.()) === id) || activeWv('claude');
   const run = (action, n) => wv.executeJavaScript(`(${claudeThreads})(${JSON.stringify(action)}, ${n || 0})`).catch(() => {});
   clearTimeout(hintTimer);
-  // A short wait, so a quick Alt+Tab doesn't flash numbers.
-  if (what === 'alt-hold') hintTimer = setTimeout(() => run('show'), 250);
-  else if (what === 'alt-up') run('hide');
-  else run('go', +what.slice(4)).then((ok) => { if (ok === false) toast('Open Claude\'s sidebar to switch between recent chats.'); });
+  // A short wait, so Ctrl C and the like don't flash numbers.
+  if (what === 'chat-hold') hintTimer = setTimeout(() => run('show'), 250);
+  else if (what === 'chat-up' || what === 'chat-other') run('hide');
+  else run('go', +what.slice(5)).then((ok) => { if (ok === false) toast('Open Claude\'s sidebar to switch between recent chats.'); });
 }
 window.md?.onShortcut(shortcut);
 window.md?.onNewTab(({ mod, url }) => {
@@ -1361,12 +1364,14 @@ window.md?.onSignedIn(({ mod, url }) => {
 window.md?.onCssChanged(() => { $('#shell-css').href = 'style.css?v=' + Date.now(); });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') return closeLayer();
-  // Alt 1–9 and Alt ` while Claude is showing but the shell has the keyboard.
-  if (e.altKey && !e.ctrlKey && !e.metaKey && (/^[1-9]$/.test(e.key) || e.code === 'Backquote' || e.key === '`') && S.panes[S.focus] === 'claude') { e.preventDefault(); shortcut('alt+' + ((e.code === 'Backquote' || e.key === '`') ? 0 : e.key)); return; }
+  // Alt ` / Alt 1–9 switch apps; Ctrl ` / Ctrl 1–9 open Claude's chats while Claude is showing but the shell has the keyboard.
+  const n = e.shiftKey ? -1 : e.code === 'Backquote' || e.key === '`' ? 0 : /^[1-9]$/.test(e.key) ? +e.key : -1;
+  if (n >= 0 && e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); shortcut('app:' + n); return; }
+  if (n >= 0 && e.ctrlKey && !e.altKey && S.panes[S.focus] === 'claude') { e.preventDefault(); shortcut('chat+' + n); return; }
   if (!(e.ctrlKey || e.metaKey)) return;
   const k = e.key.toLowerCase();
   if (e.shiftKey && k === 'e') { e.preventDefault(); shortcut('shift+e'); }
-  else if (!e.shiftKey && ['k', '\\', 't', 'w', '1', '2', '3', '4', '5', '6', '7', '8'].includes(k)) { e.preventDefault(); shortcut(k); }
+  else if (!e.shiftKey && ['k', '\\', 't', 'w'].includes(k)) { e.preventDefault(); shortcut(k); }
 });
 
 /* ---------- start: reopen the tabs from last time ---------- */
