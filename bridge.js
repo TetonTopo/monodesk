@@ -728,22 +728,29 @@ async function xiSpeak({ text, voice, owner, model, pause }) {
   const said = ms > 0 && model !== 'eleven_v3' ? text.split('\n').join(` <break time="${(ms / 1000).toFixed(2)}s" />\n`) : text;
   const key = require('crypto').createHash('sha1').update([model, voice, said].join('\0')).digest('hex');
   if (audioCache.has(key)) return { audio: audioCache.get(key), credits: 0, cached: true, voice };
+  // The phone asking again for a reply that's still being made (its connection dropped) waits for that one: never paid twice.
+  if (!making.has(key)) making.set(key, makeAudio(said, voice, model, m).then((r) => { audioCache.set(key, r.audio); while (audioCache.size > 40) audioCache.delete(audioCache.keys().next().value); return r; }).finally(() => making.delete(key)));
+  const r = await making.get(key);
+  return { ...r, cached: false, voice };
+}
+const making = new Map();
+// A long reply is made three pieces at a time, in order, so the phone waits less (it hears nothing until all of it is back).
+// 64 kbps is plenty for a voice and half the download over a slow Tailscale relay.
+async function makeAudio(said, voice, model, m) {
   const chunks = parts(said, m.limit);
-  const bufs = [];
-  let credits = 0;
-  for (let i = 0; i < chunks.length; i++) {
+  const bufs = new Array(chunks.length);
+  let credits = 0, next = 0;
+  const one = async (i) => {
     const body = { text: chunks[i], model_id: model, voice_settings: { stability: 0.5, similarity_boost: 0.75 } };
     if (model !== 'eleven_v3') { if (i) body.previous_text = chunks[i - 1].slice(-400); if (i < chunks.length - 1) body.next_text = chunks[i + 1].slice(0, 400); }
-    const r = await xi(`/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`, { method: 'POST', body: JSON.stringify(body) });
+    const r = await xi(`/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_64`, { method: 'POST', body: JSON.stringify(body) });
     const cost = r.headers.get('character-cost');
     credits += cost != null && Number.isFinite(+cost) ? +cost : Math.ceil(chunks[i].length * m.per);
-    bufs.push(Buffer.from(await r.arrayBuffer()));
-  }
-  const audio = Buffer.concat(bufs);
-  audioCache.set(key, audio);
-  while (audioCache.size > 40) audioCache.delete(audioCache.keys().next().value);
+    bufs[i] = Buffer.from(await r.arrayBuffer());
+  };
+  await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, async () => { while (next < chunks.length) await one(next++); }));
   if (xiCache.val?.credits) xiCache.val.credits.used += credits;
-  return { audio, credits, cached: false, voice };
+  return { audio: Buffer.concat(bufs), credits };
 }
 
 /* ---------- HTTP ---------- */
