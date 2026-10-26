@@ -82,6 +82,8 @@ Monodesk runs a small server on `127.0.0.1:47800` for [Dispatch](https://github.
 
 When Claude stops to ask a multiple-choice question (in Co-work or Claude Code), Dispatch shows the questions with their choices; your answers are entered on claude.ai by Monodesk, in a hidden window, exactly as if you'd clicked them.
 
+Every reply read in an ElevenLabs voice is saved as an MP3 in `%APPDATA%\Monodesk\readings` (the newest 200, up to 1 GB), for Dispatch's **Saved** list. Hearing one again, there or from its thread, costs nothing, even after Monodesk restarts.
+
 ## Claude can read WhatsApp (MCP)
 
 `mcp/monodesk-mcp.js` is a small MCP server that lets Claude on this PC read WhatsApp through Monodesk. It works inside the WhatsApp tab that's already signed in, so WhatsApp never logs in anywhere new. It's read-only: Claude can list chats and read a chat's recent messages, never type or send. Two tools:

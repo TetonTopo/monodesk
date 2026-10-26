@@ -705,9 +705,49 @@ function parts(text, n) {
   return out;
 }
 
-// The same reply in the same voice and model is only paid for once (until Monodesk restarts).
+/* ---------- saved readings ---------- */
+// Every reply Dispatch has read in an ElevenLabs voice is kept as an MP3 on this computer, in Monodesk's own data folder
+// (never in the repo), so it can be heard again from Dispatch's Saved list after the thread has moved on, for free.
+// The newest 200 are kept, up to 1 GB.
+const SAVED = path.join(require('electron').app.getPath('userData'), 'readings');
+const SAVED_INDEX = path.join(SAVED, 'index.json');
+let saved = null;
+function savedList() {
+  if (!saved) { try { saved = JSON.parse(fs.readFileSync(SAVED_INDEX, 'utf8')); } catch { saved = []; } }
+  return saved;
+}
+function writeSaved() {
+  try { fs.mkdirSync(SAVED, { recursive: true }); fs.writeFileSync(SAVED_INDEX, JSON.stringify(saved)); } catch (e) { console.error('Monodesk: could not save readings:', e.message); }
+}
+const savedFile = (id) => path.join(SAVED, id + '.mp3');
+function savedAudio(id) {
+  if (!/^[0-9a-f]{40}$/.test(id)) return null;
+  try { return fs.readFileSync(savedFile(id)); } catch { return null; }
+}
+// Kept or bumped to the top of the list: what was read, from which thread, and how long it runs (64 kbps, so bytes / 8000).
+function remember(id, audio, meta, info) {
+  const list = savedList();
+  const old = list.find((r) => r.id === id);
+  const kbps = info.kbps || old?.kbps || 64;
+  const entry = { ...old, id, at: Date.now(), bytes: audio.length, kbps, secs: Math.round(audio.length * 8 / (kbps * 1000)),
+    title: String(meta.title || old?.title || 'Claude').slice(0, 200), thread: meta.thread || old?.thread || '', kind: meta.kind || old?.kind || 'cowork',
+    preview: old?.preview || info.text.replace(/\s+/g, ' ').slice(0, 220), chars: info.text.length, voice: info.voiceName || old?.voice || '', model: info.model, credits: old?.credits ?? info.credits };
+  if (!old) { try { fs.mkdirSync(SAVED, { recursive: true }); fs.writeFileSync(savedFile(id), audio); } catch (e) { return console.error('Monodesk: could not save a reading:', e.message); } }
+  saved = [entry, ...list.filter((r) => r.id !== id)];
+  let total = 0;
+  saved = saved.filter((r, i) => { total += r.bytes || 0; const keep = i < 200 && total < 1e9; if (!keep) fs.rm(savedFile(r.id), { force: true }, () => {}); return keep; });
+  writeSaved();
+}
+function forget(id) {
+  saved = savedList().filter((r) => r.id !== id);
+  fs.rm(savedFile(id), { force: true }, () => {});
+  writeSaved();
+}
+
+// The same reply in the same voice and model is only paid for once: in memory, then from the saved readings.
 const audioCache = new Map();
-async function xiSpeak({ text, voice, owner, model, pause }) {
+async function xiSpeak({ text, voice, owner, model, pause, title, thread, kind }) {
+  const meta = { title, thread, kind };
   if (!xiKey()) throw Object.assign(new Error('No ElevenLabs key in config.js'), { status: 409 });
   text = String(text || '').replace(/\r/g, '').trim();
   if (!text) throw Object.assign(new Error('Nothing to read'), { status: 400 });
@@ -727,11 +767,18 @@ async function xiSpeak({ text, voice, owner, model, pause }) {
   const ms = Math.min(+pause || 0, 3000);
   const said = ms > 0 && model !== 'eleven_v3' ? text.split('\n').join(` <break time="${(ms / 1000).toFixed(2)}s" />\n`) : text;
   const key = require('crypto').createHash('sha1').update([model, voice, said].join('\0')).digest('hex');
-  if (audioCache.has(key)) return { audio: audioCache.get(key), credits: 0, cached: true, voice };
+  const about = { text, model, voiceName: [...info.voices, ...info.library].find((v) => v.id === voice)?.name?.split(' - ')[0] };
+  const kept = audioCache.get(key) || savedAudio(key);
+  if (kept) { remember(key, kept, meta, { ...about, credits: 0 }); return { audio: kept, credits: 0, cached: true, voice, id: key }; }
   // The phone asking again for a reply that's still being made (its connection dropped) waits for that one: never paid twice.
-  if (!making.has(key)) making.set(key, makeAudio(said, voice, model, m).then((r) => { audioCache.set(key, r.audio); while (audioCache.size > 40) audioCache.delete(audioCache.keys().next().value); return r; }).finally(() => making.delete(key)));
+  if (!making.has(key)) making.set(key, makeAudio(said, voice, model, m).then((r) => {
+    audioCache.set(key, r.audio);
+    while (audioCache.size > 40) audioCache.delete(audioCache.keys().next().value);
+    remember(key, r.audio, meta, { ...about, credits: r.credits });
+    return r;
+  }).finally(() => making.delete(key)));
   const r = await making.get(key);
-  return { ...r, cached: false, voice };
+  return { ...r, cached: false, voice, id: key };
 }
 const making = new Map();
 // A long reply is made three pieces at a time, in order, so the phone waits less (it hears nothing until all of it is back).
@@ -829,6 +876,16 @@ async function handle(req, res) {
       return send(res, 200, await startThread(kind, String(text), env ? String(env) : ''));
     }
     if (req.method === 'GET' && url.pathname === '/api/voices') return send(res, 200, await xiVoices(url.searchParams.has('now')));
+    // Saved readings: the list (newest first), one MP3, or forget one.
+    if (req.method === 'GET' && url.pathname === '/api/readings') return send(res, 200, { readings: savedList() });
+    const rd = /^\/api\/readings\/([0-9a-f]{40})(\/forget)?$/.exec(url.pathname);
+    if (rd && req.method === 'GET' && !rd[2]) {
+      const audio = savedAudio(rd[1]);
+      if (!audio) return send(res, 404, { error: 'That reading isn’t saved any more' });
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': audio.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      return res.end(audio);
+    }
+    if (rd && req.method === 'POST' && rd[2]) { forget(rd[1]); return send(res, 200, { ok: true }); }
     if (req.method === 'POST' && url.pathname === '/api/speak') {
       const r = await xiSpeak(await readBody(req));
       const left = xiCache.val?.credits ? xiCache.val.credits.limit - xiCache.val.credits.used : '';
