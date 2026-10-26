@@ -401,7 +401,7 @@ function watchForUpdates() {
   if (app.isPackaged) return;
   const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'whatsapp.js', 'updater.js', 'calendar.js', 'usage.js']);
   const changed = new Set();
-  let timer;
+  let timer, restarting = false;
   fs.watch(__dirname, (_ev, file) => {
     if (!file || !files.has(file) || updater.state.busy) return; // an update restarts on its own when it's done
     changed.add(file);
@@ -415,7 +415,10 @@ function watchForUpdates() {
         // Restart only if they all parse: a half-saved file would otherwise stop Monodesk until it's started by hand.
         const broken = restart.find((f) => { try { new vm.Script(fs.readFileSync(path.join(__dirname, f), 'utf8'), { filename: f }); return false; } catch { return true; } });
         if (broken) { win.webContents.send('toast', `${broken} has an error, so Monodesk didn't restart. Fix it and save again.`); return; }
-        Promise.race([saveSessions(), new Promise((r) => setTimeout(r, 3000))]).finally(() => { app.relaunch(); app.exit(0); });
+        // A reply or voice the phone is sending right now finishes first (up to three minutes).
+        if (restarting) return;
+        restarting = true;
+        bridge.idle().then(() => Promise.race([saveSessions(), new Promise((r) => setTimeout(r, 3000))])).finally(() => { app.relaunch(); app.exit(0); });
       } else if (list.some((f) => f !== 'style.css')) {
         win.webContents.once('did-finish-load', () => win.webContents.send('toast', 'Monodesk updated'));
         win.webContents.reload();

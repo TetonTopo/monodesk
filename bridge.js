@@ -8,6 +8,15 @@ const { BrowserWindow } = require('electron');
 const updater = require('./updater');
 const whatsapp = require('./whatsapp');
 
+// A short log of what the phone asked for and how long each step took, for when a send is slow or doesn't go:
+// %APPDATA%\Monodesk\bridge-log.txt (the newest ~500 KB). Never message text, only lengths.
+const LOG = path.join(require('electron').app.getPath('userData'), 'bridge-log.txt');
+function log(line) {
+  fs.appendFile(LOG, `${new Date().toISOString()} ${line}\n`, () => {
+    fs.stat(LOG, (e, st) => { if (!e && st.size > 1e6) fs.readFile(LOG, 'utf8', (e2, all) => { if (!e2) fs.writeFile(LOG, all.slice(-5e5), () => {}); }); });
+  });
+}
+
 const PORT = 47800;
 const HOST = '127.0.0.1';
 const ORIGIN = 'https://claude.ai';
@@ -500,8 +509,8 @@ async function refresh() {
     const next = await Promise.all(all.slice(0, TOP).map((t) => readThread(t, prev.get(keyOf(t.kind, t.id)), true)));
     // Hidden windows for threads that left the top four go away.
     // A Co-work window with a question waiting stays: the question is only there.
-    // So does one opened in the last two minutes (a reply or answer from the phone may still be using it).
-    for (const [name, w] of [...views]) if (/^(cowork|code):/.test(name) && !next.some((t) => t.key === name) && !(name.startsWith('cowork:') && asking.has(name)) && !(Date.now() - (w.born || 0) < 120e3)) closeView(name);
+    // So does one opened or warmed in the last five minutes (you may be typing a reply on the phone).
+    for (const [name, w] of [...views]) if (/^(cowork|code):/.test(name) && !next.some((t) => t.key === name) && !(name.startsWith('cowork:') && asking.has(name)) && !(Date.now() - (w.born || 0) < 300e3)) closeView(name);
     S.threads = next;
     S.error = failed;
   })().finally(() => { S.refreshing = null; });
@@ -519,8 +528,13 @@ function schedule() {
 async function reply(key, text) {
   const [kind, id] = key.split(':');
   if (!['cowork', 'code'].includes(kind) || !id) throw new Error('Unknown thread');
+  const had = views.get(key), fresh = !had || had.isDestroyed();
+  const t0 = Date.now();
   const w = view(key, urlOf(kind, id));
-  const r = await run(w, pageSend, text);
+  await loaded(w);
+  const t1 = Date.now();
+  const r = await run(w, pageSend, text).catch((e) => ({ error: e.message }));
+  log(`reply ${key} · ${fresh ? 'opened its window' : 'window was open'} · page ${t1 - t0} ms · typing and send ${Date.now() - t1} ms · ${text.length} chars · ${r.error || 'sent'}`);
   if (r.error) throw new Error(r.error);
   setTimeout(() => refresh().catch(() => {}), 1500);
   return r;
@@ -826,6 +840,15 @@ function serveStatic(req, res) {
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
+  // Every write, and any read that was slow or failed, goes in the log.
+  const t0 = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - t0;
+    if (req.method !== 'GET' || ms > 4000 || res.statusCode >= 400) log(`${req.method} ${url.pathname} · ${res.statusCode} · ${ms} ms${res.mdError ? ' · ' + res.mdError : ''}`);
+  });
+  res.on('close', () => { if (!res.writableFinished) log(`${req.method} ${url.pathname} · the phone hung up after ${Date.now() - t0} ms`); });
+  // A send in progress holds off a code-change restart (see idle()).
+  if (req.method !== 'GET') { inFlight++; res.on('close', () => { inFlight--; }); }
   // Writes need a custom header, which a web page elsewhere can't add without a CORS preflight (never answered).
   if (req.method !== 'GET' && req.headers['x-monodesk'] !== '1') return send(res, 403, { error: 'Forbidden' });
   // WhatsApp (read-only) is for the Monodesk MCP server. It also needs the header, even to read, so no web page can see your chats.
@@ -858,6 +881,18 @@ async function handle(req, res) {
       if (!['cowork', 'code'].includes(kind) || !id) return send(res, 404, { error: 'Unknown thread' });
       const h = S.history.find((x) => x.key === key);
       return send(res, 200, await readThread({ kind, id, title: h?.title || '', t: h?.updated || 0 }, S.threads.find((x) => x.key === key)));
+    }
+    // The phone opened a thread (or tapped into its box): open Claude's page for it now, so a reply goes at once.
+    const warm = /^\/api\/threads\/([^/]+)\/warm$/.exec(url.pathname);
+    if (req.method === 'POST' && warm) {
+      const key = decodeURIComponent(warm[1]);
+      const [kind, id] = key.split(':');
+      if (!['cowork', 'code'].includes(kind) || !id) return send(res, 404, { error: 'Unknown thread' });
+      const had = views.get(key);
+      const w = view(key, urlOf(kind, id));
+      w.born = Date.now(); // kept for a while, even if the thread isn't one of the top four
+      if (!had || had.isDestroyed()) log(`warm ${key} · opened its window`);
+      return send(res, 200, { ok: true });
     }
     const m = /^\/api\/threads\/([^/]+)\/reply$/.exec(url.pathname);
     if (req.method === 'POST' && m) {
@@ -894,8 +929,17 @@ async function handle(req, res) {
     }
     send(res, 404, { error: 'Not found' });
   } catch (e) {
+    res.mdError = e.message;
     send(res, e.status >= 400 && e.status < 500 ? (e.status === 401 ? 502 : e.status) : 500, { error: e.message || 'Something went wrong' });
   }
+}
+
+// Resolves once nothing from the phone is in progress (a reply being typed into Claude, a voice being made), or after
+// three minutes. Monodesk waits for it before restarting for a code change, so the restart can't cut a send off.
+let inFlight = 0;
+async function idle() {
+  if (inFlight > 0) log(`restart waits for ${inFlight} request(s) from the phone`);
+  for (let i = 0; inFlight > 0 && i < 360; i++) await new Promise((r) => setTimeout(r, 500));
 }
 
 let server;
@@ -908,4 +952,4 @@ function start() {
   updater.ensureDispatch().catch((e) => console.error('Monodesk: could not download Dispatch:', e.message));
 }
 
-module.exports = { start, PORT };
+module.exports = { start, idle, PORT };
