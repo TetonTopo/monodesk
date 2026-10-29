@@ -1,8 +1,9 @@
-// Read-only WhatsApp for the bridge (and the Monodesk MCP server that sits on top of it).
-// Works inside the WhatsApp tab that's already signed in, so nothing logs in anywhere new. It can list chats and read
-// one chat's recent messages. It never types or sends. Reading a chat opens it in WhatsApp for a moment, the same as
-// clicking it, so WhatsApp may mark it read; afterwards the chat you had open is opened again.
+// WhatsApp for the bridge (and the Monodesk MCP server that sits on top of it).
+// Works inside the WhatsApp tab that's already signed in, so nothing logs in anywhere new. It can list chats, read
+// one chat's recent messages, and send a message to one chat. Reading or sending opens the chat in WhatsApp for a
+// moment, the same as clicking it, so WhatsApp may mark it read; afterwards the chat you had open is opened again.
 const { webContents, session } = require('electron');
+const { awake } = require('./agent');
 
 /* ---------- scripts that run inside WhatsApp Web ---------- */
 // Each is passed to executeJavaScript as source, so it must be self-contained.
@@ -46,7 +47,10 @@ async function pageOpenChat(name) {
     const opts = { bubbles: true, cancelable: true, view: window, clientX: r.x + 10, clientY: r.y + 8 };
     for (const type of ['mousedown', 'mouseup', 'click']) el.dispatchEvent(new MouseEvent(type, opts));
   };
+  // The selected sidebar row: a group's header has its members as the first title and its name without emoji.
   const header = () => {
+    const sel = document.querySelector('#pane-side [aria-selected="true"] span[title]');
+    if (sel) return sel.getAttribute('title');
     const h = document.querySelector('#main header');
     return h && ([...h.querySelectorAll('span[title]')].map((s) => s.getAttribute('title')).find(Boolean) || h.querySelector('span[dir="auto"]')?.innerText?.trim());
   };
@@ -110,6 +114,37 @@ async function pageReadOpenChat(limit) {
   return { messages: messages.slice(-limit) };
 }
 
+// Types this message into the open chat (which must be `name`) and sends it. Each line goes in separately with
+// Shift+Enter between, the way WhatsApp's own box makes new lines. Same steps as Home's Reply box.
+async function pageSendToOpenChat(name, text) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const open = document.querySelector('#pane-side [aria-selected="true"] span[title]')?.getAttribute('title');
+  if (open !== name) return { error: `WhatsApp didn’t open “${name}”, so nothing was sent.` };
+  const box = document.querySelector('#main footer [contenteditable="true"]');
+  if (!box) return { error: `“${name}” has no message box (you may not be allowed to post there).` };
+  box.focus();
+  document.execCommand('selectAll');
+  document.execCommand('delete');
+  text.split('\n').forEach((line, i) => {
+    if (i) box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', shiftKey: true, bubbles: true, cancelable: true }));
+    if (line) document.execCommand('insertText', false, line);
+  });
+  await sleep(250);
+  if (!box.innerText.trim()) return { error: 'Couldn’t type into WhatsApp, so nothing was sent.' };
+  const send = document.querySelector('#main footer button[aria-label="Send" i]') || document.querySelector('#main footer [data-icon*="send"]')?.closest('button,[role="button"]');
+  if (send) send.click();
+  else box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true, cancelable: true }));
+  for (let i = 0; i < 15 && box.innerText.trim(); i++) await sleep(200);
+  if (box.innerText.trim()) {
+    // Don't leave a half-sent draft sitting in the box.
+    box.focus();
+    document.execCommand('selectAll');
+    document.execCommand('delete');
+    return { error: 'WhatsApp didn’t take the message, so nothing was sent.' };
+  }
+  return { ok: true };
+}
+
 /* ---------- running them ---------- */
 // The WhatsApp tab's page. WhatsApp allows one open window, so there's only ever one.
 function waPage() {
@@ -128,8 +163,12 @@ async function run(fn, ...args) {
 }
 
 // One read at a time, so two callers never fight over which chat is open.
+// The tab is kept drawing while the job runs, or a hidden WhatsApp never loads the chat's messages.
 let queue = Promise.resolve();
-const one = (job) => (queue = queue.then(job, job));
+const one = (job) => {
+  const woke = () => { const c = waPage(); return c ? awake(c, job) : job(); };
+  return (queue = queue.then(woke, woke));
+};
 
 async function chats() {
   const list = await run(pageListChats);
@@ -156,4 +195,28 @@ async function readChat(name, limit = 60) {
   });
 }
 
-module.exports = { chats, readChat };
+// Sends only to the chat whose name matches exactly (ignoring case), so a partial name can't land in the wrong chat.
+async function sendMessage(name, text) {
+  name = String(name || '').trim();
+  text = String(text || '').replace(/\r\n?/g, '\n').trim();
+  if (!name) throw fail('Say which chat to send to.', 400);
+  if (!text) throw fail('Nothing to send.', 400);
+  if (text.length > 4000) throw fail('That message is too long for one WhatsApp message (4000 characters at most).', 400);
+  return one(async () => {
+    const before = await run(pageOpenChatName).catch(() => null);
+    const opened = await run(pageOpenChat, name);
+    if (opened.error) throw fail(opened.error, 404);
+    try {
+      if (opened.name.trim().toLowerCase() !== name.toLowerCase()) {
+        throw fail(`The closest chat is “${opened.name}”. To send there, use that exact name.`, 409);
+      }
+      const r = await run(pageSendToOpenChat, opened.name, text);
+      if (r.error) throw fail(r.error, 502);
+      return { ok: true, chat: opened.name };
+    } finally {
+      if (before && before !== opened.name) await run(pageOpenChat, before).catch(() => {});
+    }
+  });
+}
+
+module.exports = { chats, readChat, sendMessage };

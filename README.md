@@ -84,14 +84,24 @@ When Claude stops to ask a multiple-choice question (in Co-work or Claude Code),
 
 Every reply read in an ElevenLabs voice is saved as an MP3 in `%APPDATA%\Monodesk\readings` (the newest 200, up to 1 GB), for Dispatch's **Saved** list. Hearing one again, there or from its thread, costs nothing, even after Monodesk restarts.
 
-## Claude can read WhatsApp (MCP)
+## Claude can use Monodesk (MCP)
 
-`mcp/monodesk-mcp.js` is a small MCP server that lets Claude on this PC read WhatsApp through Monodesk. It works inside the WhatsApp tab that's already signed in, so WhatsApp never logs in anywhere new. It's read-only: Claude can list chats and read a chat's recent messages, never type or send. Two tools:
+`mcp/monodesk-mcp.js` is a small MCP server that lets Claude on this PC use Monodesk: read and send WhatsApp, and see and drive any tab (Gmail, Notion, Claude, WhatsApp, Google Calendar) like a browser. It works inside the apps that are already signed in, so nothing logs in anywhere new. Monodesk has to be running, with the app Claude needs awake.
 
+**WhatsApp:**
 - `whatsapp_list_chats`: the chats in WhatsApp's sidebar, with unread counts.
 - `whatsapp_read_chat`: one chat's recent messages (time, sender, text). The name can be partial ("moat" finds "THE MOAT").
+- `whatsapp_send_message`: sends a message to one chat, as you. The name has to match the chat exactly, so a partial name can never send to the wrong chat.
 
-Reading a chat opens it in WhatsApp for a moment, like clicking it, so WhatsApp may mark it read. The chat you had open is opened again afterwards. Monodesk has to be running with WhatsApp awake.
+Reading or sending opens the chat in WhatsApp for a moment, like clicking it, so WhatsApp may mark it read. The chat you had open is opened again afterwards.
+
+**Any tab:** `monodesk_tabs` lists the open tabs with an id each. With an id, Claude can `monodesk_read` the page's text, `monodesk_elements` to number its buttons, links and fields, then `monodesk_click` one, `monodesk_type` into one (real keystrokes, so Notion and WhatsApp take it), `monodesk_press` a key or shortcut, `monodesk_screenshot` the tab that's on screen, `monodesk_navigate` to a link on that tab's own site, or `monodesk_script` to run JavaScript in the page for anything else.
+
+The tools that send, click, type or run scripts are marked as making changes, so Claude asks you before each one unless you've told it to always allow that tool. They act as you in your signed-in apps.
+
+**WhatsApp into Notion:** ask Claude something like "copy the last day of THE MOAT into my Project notes page in Notion". It reads the chat here and writes the page with Claude's own Notion connector, which is faster and tidier than typing into the Notion tab.
+
+Why not Playwright? Playwright can attach to Monodesk's Chromium, but it can't see Electron `<webview>` tabs, and every Monodesk app is one. These tools do the same job from inside Monodesk.
 
 **Claude desktop app:** Settings → Developer → Edit Config, and add Monodesk to `mcpServers` (use your own folder path, with double backslashes):
 
@@ -108,7 +118,7 @@ Reading a chat opens it in WhatsApp for a moment, like clicking it, so WhatsApp 
 
 Restart the Claude app. **Claude Code:** `claude mcp add monodesk -- node "C:\Users\dk\Documents\monodesk\mcp\monodesk-mcp.js"`.
 
-It needs no packages. Under the hood it calls the bridge's `/api/whatsapp/chats` and `/api/whatsapp/chat?name=…`, which only answer requests that carry the `x-monodesk: 1` header, so a web page can't read your chats.
+It needs no packages. Under the hood it calls the bridge's `/api/whatsapp/…` and `/api/agent/…` endpoints, which only answer requests that carry the `x-monodesk: 1` header, so a web page can't read or drive your apps. The bridge listens on this PC only (and on your tailnet if you share it for Dispatch), so anything you let reach port 47800 can use these too.
 
 ## Privacy
 

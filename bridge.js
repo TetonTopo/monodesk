@@ -7,6 +7,7 @@ const fs = require('fs');
 const { BrowserWindow } = require('electron');
 const updater = require('./updater');
 const whatsapp = require('./whatsapp');
+const agent = require('./agent');
 
 // A short log of what the phone asked for and how long each step took, for when a send is slow or doesn't go:
 // %APPDATA%\Monodesk\bridge-log.txt (the newest ~500 KB). Never message text, only lengths.
@@ -851,12 +852,46 @@ async function handle(req, res) {
   if (req.method !== 'GET') { inFlight++; res.on('close', () => { inFlight--; }); }
   // Writes need a custom header, which a web page elsewhere can't add without a CORS preflight (never answered).
   if (req.method !== 'GET' && req.headers['x-monodesk'] !== '1') return send(res, 403, { error: 'Forbidden' });
-  // WhatsApp (read-only) is for the Monodesk MCP server. It also needs the header, even to read, so no web page can see your chats.
+  // Sending WhatsApp and driving tabs are for Claude on this PC only: `tailscale serve` (for Dispatch) forwards with
+  // these headers, and the phone has no business driving your apps.
+  if ((url.pathname.startsWith('/api/agent/') || url.pathname === '/api/whatsapp/send') && (req.headers['x-forwarded-for'] || req.headers['tailscale-user-login'])) {
+    return send(res, 403, { error: 'Only from this PC' });
+  }
+  // WhatsApp is for the Monodesk MCP server. It also needs the header, even to read, so no web page can see your chats.
   if (url.pathname.startsWith('/api/whatsapp/')) {
     if (req.headers['x-monodesk'] !== '1') return send(res, 403, { error: 'Forbidden' });
     try {
       if (req.method === 'GET' && url.pathname === '/api/whatsapp/chats') return send(res, 200, await whatsapp.chats());
       if (req.method === 'GET' && url.pathname === '/api/whatsapp/chat') return send(res, 200, await whatsapp.readChat(url.searchParams.get('name'), url.searchParams.get('limit')));
+      if (req.method === 'POST' && url.pathname === '/api/whatsapp/send') {
+        const { name, text } = await readBody(req);
+        return send(res, 200, await whatsapp.sendMessage(name, text));
+      }
+      return send(res, 404, { error: 'Not found' });
+    } catch (e) {
+      return send(res, e.status >= 400 && e.status < 600 ? e.status : 500, { error: e.message || 'Something went wrong' });
+    }
+  }
+  // Agent control of any Monodesk tab, for the MCP server. Header required even to read, like WhatsApp.
+  if (url.pathname.startsWith('/api/agent/')) {
+    if (req.headers['x-monodesk'] !== '1') return send(res, 403, { error: 'Forbidden' });
+    const q = (k) => url.searchParams.get(k);
+    try {
+      const p = url.pathname.slice('/api/agent/'.length);
+      if (req.method === 'GET') {
+        if (p === 'tabs') return send(res, 200, await agent.tabs());
+        if (p === 'read') return send(res, 200, await agent.read(q('tab'), q('selector'), q('max')));
+        if (p === 'elements') return send(res, 200, await agent.elements(q('tab'), q('filter'), q('max')));
+        if (p === 'screenshot') return send(res, 200, await agent.screenshot(q('tab')));
+      }
+      if (req.method === 'POST') {
+        const b = await readBody(req);
+        if (p === 'click') return send(res, 200, await agent.click(b.tab, b.ref));
+        if (p === 'type') return send(res, 200, await agent.type(b.tab, b.ref, b.text, { clear: !!b.clear, enter: !!b.enter }));
+        if (p === 'press') return send(res, 200, await agent.press(b.tab, b.key));
+        if (p === 'navigate') return send(res, 200, await agent.navigate(b.tab, b.url));
+        if (p === 'script') return send(res, 200, await agent.script(b.tab, b.code));
+      }
       return send(res, 404, { error: 'Not found' });
     } catch (e) {
       return send(res, e.status >= 400 && e.status < 600 ? e.status : 500, { error: e.message || 'Something went wrong' });

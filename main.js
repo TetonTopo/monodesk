@@ -399,7 +399,7 @@ ipcMain.handle('mode', (_e, mode) => {
 // style.css: restyled in place. index.html / renderer.js: the window reloads. main.js / preload.js: the app restarts.
 function watchForUpdates() {
   if (app.isPackaged) return;
-  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'whatsapp.js', 'updater.js', 'calendar.js', 'usage.js']);
+  const files = new Set(['index.html', 'style.css', 'renderer.js', 'config.js', 'main.js', 'preload.js', 'bridge.js', 'whatsapp.js', 'agent.js', 'updater.js', 'calendar.js', 'usage.js']);
   const changed = new Set();
   let timer, restarting = false;
   fs.watch(__dirname, (_ev, file) => {
@@ -410,7 +410,7 @@ function watchForUpdates() {
       const list = [...changed];
       changed.clear();
       if (!win) return;
-      const restart = ['main.js', 'preload.js', 'bridge.js', 'whatsapp.js', 'updater.js', 'calendar.js', 'usage.js'];
+      const restart = ['main.js', 'preload.js', 'bridge.js', 'whatsapp.js', 'agent.js', 'updater.js', 'calendar.js', 'usage.js'];
       if (list.some((f) => restart.includes(f))) {
         // Restart only if they all parse: a half-saved file would otherwise stop Monodesk until it's started by hand.
         const broken = restart.find((f) => { try { new vm.Script(fs.readFileSync(path.join(__dirname, f), 'utf8'), { filename: f }); return false; } catch { return true; } });
