@@ -21,7 +21,7 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 
 ## What's where
 
-**Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, WhatsApp, Google Calendar (signed in with the Mail tab), your private Timeline if `timelineUrl` is set in config.js, then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. Monodesk opens in **Color** (each app's own colours, in its dark theme); the **Mono / Color** button on the right switches to Mono: a flat warm paper page with near-black text and clear lines, in Monodesk and inside the apps.
+**Top bar:** the **𝕸** shows your version and updates Monodesk (see below). Then Home, Mail, Notion, Co-work, Claude Code, Duet (Claude Duet, in its own tab so it never takes over your Claude tabs; Duet links open there, and chats you open from Duet go to Claude), WhatsApp, Google Calendar (signed in with the Mail tab), your private Timeline if `timelineUrl` is set in config.js, then **+** (new to-do, if set up). Numbers on an icon are unread counts; on Co-work and Claude Code they count tabs where Claude finished replying while you were elsewhere. Monodesk opens in **Color** (each app's own colours, in its dark theme); the **Mono / Color** button on the right switches to Mono: a flat warm paper page with near-black text and clear lines, in Monodesk and inside the apps.
 
 **Sleep an app:** when one app is lagging or using too much bandwidth (say, on a call), **Shift-click** its icon in the top bar to put it to sleep, and Shift-click again to wake it. Shift-clicking never switches apps. Asleep, the app's pages are unloaded: it uses no memory and no network, and the rest keep working. Its icon is dimmed, Home's panel for it says it's asleep, and opening it shows a **Wake** button. Waking reloads its tabs where they were (an open draft that wasn't saved is lost). Co-work and Claude Code sleep separately, apps stay asleep across restarts, and Dispatch keeps working whether Claude is asleep or not (it has its own hidden Claude windows). Opening a link or thread in a sleeping app wakes it.
 
@@ -47,7 +47,8 @@ On a Mac: install Node.js, then in Terminal run `npm install` and `npm start` in
 | Home | Alt ` (the key left of 1) |
 | Mail, Notion, Co-work, Claude Code, WhatsApp, Google Calendar | Alt 1–6 |
 | Timeline (only if `timelineUrl` is set in your config.js) | Alt 7 |
-| From any other program: bring up Monodesk / bring it up on an app | Ctrl Alt M / Ctrl Alt ` and Ctrl Alt 1–7 |
+| Duet | Alt 7, or Alt 8 if you have Timeline |
+| From any other program: bring up Monodesk / bring it up on an app | Ctrl Alt M / Ctrl Alt ` and Ctrl Alt 1–8 |
 | Show each app's number in the top bar | Hold Alt |
 | In Claude: number recent chats / jump to one (1 = most recent) / start a new one | Hold Ctrl / Ctrl 1–9 / Ctrl ` |
 | New tab / close tab | Ctrl T / Ctrl W |

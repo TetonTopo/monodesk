@@ -14,22 +14,25 @@ const APPS = {
   wa: { name: 'WhatsApp', url: 'https://web.whatsapp.com/', tabs: false },
   // Google Calendar shares the Mail tab's Google sign-in.
   cal: { name: 'Google Calendar', url: 'https://calendar.google.com/calendar/u/0/r', tabs: false, partition: 'mail' },
+  // Claude Duet takes over the whole of claude.ai, so it gets its own tab (with Claude's sign-in) and leaves Claude alone.
+  duet: { name: 'Duet', url: 'https://claude.ai/duet', tabs: false, partition: 'claude' },
 };
 // Your own timeline: a private claude.ai artifact, opened with the Claude sign-in. It gets a tab (Alt 7) only when
 // your config.js has its link, and config.js is never shared, so nobody else's Monodesk shows it. Even with the link,
 // claude.ai opens a private artifact only for its owner.
 const TL_URL = /^https:\/\/claude\.ai\/artifact\/\w+/.test(CFG.timelineUrl || '') ? CFG.timelineUrl.trim() : '';
 if (TL_URL) APPS.tl = { name: 'Timeline', url: TL_URL, tabs: false, partition: 'claude' };
-const ORDER = ['home', 'mail', 'notion', 'claude', 'wa', 'cal', ...(TL_URL ? ['tl'] : [])];
-// Alt ` for Home, Alt 1–7 for the rest. Claude takes two numbers: Co-work and Claude Code.
-const SLOTS = ['home', 'mail', 'notion', 'cowork', 'code', 'wa', 'cal', ...(TL_URL ? ['tl'] : [])];
+const ORDER = ['home', 'mail', 'notion', 'claude', 'duet', 'wa', 'cal', ...(TL_URL ? ['tl'] : [])];
+// Alt ` for Home, Alt 1–8 for the rest. Claude takes two numbers: Co-work and Claude Code.
+// Duet comes last, so Timeline keeps Alt 7.
+const SLOTS = ['home', 'mail', 'notion', 'cowork', 'code', 'wa', 'cal', ...(TL_URL ? ['tl'] : []), 'duet'];
 const SLOT_NAMES = { cowork: 'Co-work', code: 'Claude Code' };
 const keyOf = (s) => (SLOTS.indexOf(s) ? String(SLOTS.indexOf(s)) : '`'); // Home is `
 const goSlot = (s) => (s === 'cowork' || s === 'code' ? claudeMode(s) : go(s));
 const WEB = ORDER.filter((m) => APPS[m].url);
 const MAX_TABS = 12;
 // Apps you can put to sleep. Claude sleeps by side, so Co-work and Claude Code are separate.
-const UNITS = ['mail', 'notion', 'cowork', 'code', 'wa', 'cal'];
+const UNITS = ['mail', 'notion', 'cowork', 'code', 'duet', 'wa', 'cal'];
 const unitName = (u) => SLOT_NAMES[u] || APPS[u]?.name || u;
 const unitIcon = (u) => (u === 'cowork' ? 'claude' : u === 'code' ? 'term' : u);
 const unitOf = (m, url) => (m === 'claude' ? (isCodeUrl(url) ? 'code' : 'cowork') : m);
@@ -42,6 +45,8 @@ const P = {
   wa: '<path d="M4 5h16v11H9l-5 4z"/>',
   // Google Calendar: a calendar page with a G on it.
   cal: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M14.3 12.9A3 3 0 1 0 15 14.9h-2.6"/>',
+  // Claude Duet: two voices, overlapping.
+  duet: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
   // Your timeline: a calendar page with a star on it.
   tl: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M12 11.2l1.2 2.4 2.6.4-1.9 1.8.5 2.6-2.4-1.3-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
@@ -117,13 +122,30 @@ function createTab(m, url) {
     }
     topbar();
   });
-  const nav = (e) => { if (/^https?:/.test(e.url || '')) { tab.url = e.url; saveTabs(); if (m === 'claude') topbar(); } };
+  const nav = (e) => {
+    if (!/^https?:/.test(e.url || '')) return;
+    // A Claude tab heading into Duet hands the link to the Duet tab and steps back, and a chat opened from Duet goes to Claude.
+    if (m === 'claude' && isDuetUrl(e.url)) return handOff(wv, 'claude', 'duet', e.url);
+    if (m === 'duet' && isClaudeChatUrl(e.url)) return handOff(wv, 'duet', 'claude', e.url);
+    tab.url = e.url; saveTabs(); if (m === 'claude') topbar();
+  };
   wv.addEventListener('did-navigate', nav);
   wv.addEventListener('did-navigate-in-page', (e) => { if (e.isMainFrame !== false) nav(e); });
   if (m === 'notion') wv.addEventListener('did-stop-loading', () => refreshNotionFavs());
   $('#stage').appendChild(wv);
   S.tabs[m].push(tab);
   return tab;
+}
+
+const isDuetUrl = (u) => /^https:\/\/claude\.ai\/duet\b/.test(u || '');
+// Only an actual chat or Code session: Duet redirecting somewhere (sign-in, a new chat) stays in the Duet tab.
+const isClaudeChatUrl = (u) => /^https:\/\/claude\.ai\/(chat|code)\/[\w-]+/.test(u || '');
+let lastHandOff = 0;
+function handOff(wv, from, to, url) {
+  if (Date.now() - lastHandOff < 3000) return; // never bounce a page back and forth
+  lastHandOff = Date.now();
+  if (wv.canGoBack()) wv.goBack(); else wv.loadURL(APPS[from].url);
+  newTab(to, url);
 }
 
 function newTab(m, url) {
@@ -1333,8 +1355,8 @@ function claudeChat(key) {
   const [what, id] = key.split('@');
   // Ctrl from the shell counts only while Claude is the app in front.
   if (!id && what !== 'chat-up' && S.panes[S.focus] !== 'claude') return;
-  // Ctrl in the Timeline tab (it shares Claude's sign-in) leaves the hidden Claude tabs alone.
-  if (id && String(S.tabs.tl?.[0]?.wv.getWebContentsId?.()) === id) return;
+  // Ctrl in the Timeline or Duet tab (they share Claude's sign-in) leaves the hidden Claude tabs alone.
+  if (id && [S.tabs.tl?.[0], S.tabs.duet?.[0]].some((t) => String(t?.wv.getWebContentsId?.()) === id)) return;
   const wv = [...S.tabs.claude.map((t) => t.wv), triage].find((w) => w && String(w.getWebContentsId?.()) === id) || activeWv('claude');
   const run = (action, n) => wv.executeJavaScript(`(${claudeThreads})(${JSON.stringify(action)}, ${n || 0})`).catch(() => {});
   clearTimeout(hintTimer);
@@ -1345,6 +1367,7 @@ function claudeChat(key) {
 }
 window.md?.onShortcut(shortcut);
 window.md?.onNewTab(({ mod, url }) => {
+  if (mod === 'claude' && isDuetUrl(url)) mod = 'duet';
   const id = mod === 'notion' && pageId(url);
   const open = id ? S.tabs.notion.findIndex((t) => pageId(t.url) === id) : -1;
   if (open >= 0) selectTab('notion', open);
@@ -1379,7 +1402,9 @@ const savedTabs = store.get('tabs', {});
 const savedActive = store.get('active', {});
 for (const m of WEB) {
   S.tabs[m] = [];
-  const urls = APPS[m].tabs && savedTabs[m]?.length ? savedTabs[m].slice(0, MAX_TABS) : [APPS[m].url];
+  let urls = APPS[m].tabs && savedTabs[m]?.length ? savedTabs[m].slice(0, MAX_TABS) : [APPS[m].url];
+  if (m === 'claude') urls = urls.filter((u) => !isDuetUrl(u)); // Duet lives in its own tab now
+  if (!urls.length) urls = [APPS[m].url];
   urls.forEach((u) => createTab(m, u));
   S.active[m] = Math.min(Math.max(0, savedActive[m] || 0), S.tabs[m].length - 1);
 }

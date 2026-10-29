@@ -27,7 +27,7 @@ function rowOf(c, prev) {
     // Hidden windows read Claude for Dispatch (the bridge) or Google Calendar for Home's meetings.
     if (!w || !w.isVisible()) return part === 'claude' ? 'bridge' : 'monodesk';
   }
-  if (part === 'claude') return /^https:\/\/claude\.ai\/code\b/.test(url) ? 'code' : 'cowork';
+  if (part === 'claude') return /^https:\/\/claude\.ai\/code\b/.test(url) ? 'code' : /^https:\/\/claude\.ai\/duet\b/.test(url) ? 'duet' : 'cowork';
   if (part === 'mail') return /^https:\/\/calendar\.google\.com\//.test(url) ? 'cal' : 'mail';
   return part || 'monodesk';
 }
