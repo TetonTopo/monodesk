@@ -737,7 +737,12 @@ function writeSaved() {
 const savedFile = (id) => path.join(SAVED, id + '.mp3');
 function savedAudio(id) {
   if (!/^[0-9a-f]{40}$/.test(id)) return null;
-  try { return fs.readFileSync(savedFile(id)); } catch { return null; }
+  let audio;
+  try { audio = fs.readFileSync(savedFile(id)); } catch { return null; }
+  // Readings saved before joinMp3 still carry each piece's length frame: clean them once and save them back.
+  const clean = audioFrames(audio);
+  if (clean.length && clean.length !== audio.length) { try { fs.writeFileSync(savedFile(id), clean); } catch {} audio = clean; }
+  return audio;
 }
 // Kept or bumped to the top of the list: what was read, from which thread, and how long it runs (64 kbps, so bytes / 8000).
 function remember(id, audio, meta, info) {
@@ -812,7 +817,39 @@ async function makeAudio(said, voice, model, m) {
   };
   await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, async () => { while (next < chunks.length) await one(next++); }));
   if (xiCache.val?.credits) xiCache.val.credits.used += credits;
-  return { audio: Buffer.concat(bufs), credits };
+  return { audio: joinMp3(bufs), credits };
+}
+
+// One MP3 from pieces made separately. Each piece from ElevenLabs starts with an ID3 tag and an "Info" frame giving
+// that piece's length, and a phone takes the first one as the length of the whole file: an 18-minute reading in three
+// pieces stopped at 6 minutes and couldn't be skipped past it. Only the audio frames are kept; the bitrate is constant
+// (64 kbps), so a player works the true length out from the size.
+function joinMp3(bufs) {
+  return Buffer.concat(bufs.map(audioFrames));
+}
+function audioFrames(b) {
+  const keep = [];
+  let i = 0;
+  while (i + 4 <= b.length) {
+    if (b.toString('latin1', i, i + 3) === 'ID3' && i + 10 <= b.length) {
+      i += 10 + ((b[i + 6] & 127) << 21 | (b[i + 7] & 127) << 14 | (b[i + 8] & 127) << 7 | (b[i + 9] & 127)) + (b[i + 5] & 0x10 ? 10 : 0);
+      continue;
+    }
+    if (b.length - i === 128 && b.toString('latin1', i, i + 3) === 'TAG') break; // an ID3v1 tag at the very end
+    const h = b.readUInt32BE(i);
+    const ver = (h >>> 19) & 3, layer = (h >>> 17) & 3, bri = (h >>> 12) & 15, sri = (h >>> 10) & 3;
+    if ((h >>> 21) !== 0x7ff || ver === 1 || layer !== 1 || bri === 0 || bri === 15 || sri === 3) { i++; continue; } // not a frame start
+    const mpeg1 = ver === 3, mono = ((h >>> 6) & 3) === 3;
+    const kbps = (mpeg1 ? [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320] : [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160])[bri];
+    const rate = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] }[ver][sri];
+    const len = Math.floor((mpeg1 ? 144000 : 72000) * kbps / rate) + ((h >>> 9) & 1);
+    if (i + len > b.length) break; // a cut-off last frame
+    const at = i + 4 + (mpeg1 ? (mono ? 17 : 32) : (mono ? 9 : 17));
+    const tag = b.toString('latin1', at, at + 4);
+    if (tag !== 'Xing' && tag !== 'Info') keep.push(b.subarray(i, i + len));
+    i += len;
+  }
+  return Buffer.concat(keep);
 }
 
 /* ---------- HTTP ---------- */
