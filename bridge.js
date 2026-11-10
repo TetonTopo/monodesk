@@ -424,6 +424,88 @@ async function run(w, fn, ...args) {
   });
 }
 
+/* ---------- Claude Duet ---------- */
+// Duet (claude.ai/duet) is one running conversation. To the phone it's one more thread, "duet:main": its latest
+// messages to read or hear, and a reply box. A hidden Duet page (Claude's sign-in) is read and typed into.
+const DUET_KEY = 'duet:main', DUET_URL = ORIGIN + '/duet';
+
+// Runs in Duet: the messages the page shows (it only draws the newest few dozen), oldest first.
+async function pageReadDuet() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let i = 0; i < 60 && !document.querySelector('[data-testid="messages-thread"]'); i++) await sleep(250);
+  if (!document.querySelector('[data-testid="messages-thread"]')) return { error: /login|signin/.test(location.pathname) ? 'signed-out' : 'Duet didn’t load' };
+  document.querySelector('[data-testid="jump-to-latest"], [data-testid="messages-scroll-to-bottom"]')?.click();
+  await sleep(150);
+  // (Icon-font characters, which read as boxes, are dropped.)
+  const clean = (s) => String(s || '').replace(/[ ]/g, ' ').replace(/[□☐-]/g, '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  const messages = [];
+  let day = '';
+  for (const row of document.querySelectorAll('[data-row-id^="cmsg_"], [data-row-id^="day:"]')) {
+    if (row.dataset.rowId.startsWith('day:')) { day = row.dataset.rowId.slice(4); continue; } // each message knows its day
+    const bubble = row.querySelector('[data-side]');
+    if (!bubble) continue;
+    let text = clean([...bubble.querySelectorAll('[data-cds="Prose"]')].map((p) => p.innerText).join('\n\n') || bubble.innerText);
+    // Suggested tasks: their names. A draft reply: its title and body.
+    const tasks = [...row.querySelectorAll('[data-part="deck-card"] [role="group"][aria-label]')].map((g) => g.getAttribute('aria-label').trim()).filter(Boolean);
+    if (tasks.length) text += '\n\n' + tasks.map((t) => '- ' + t).join('\n');
+    const draft = row.querySelector('[data-testid="messages-compose-card"]');
+    if (draft) {
+      const title = clean(draft.querySelector('[data-testid="messages-compose-title"]')?.innerText);
+      const body = clean(draft.querySelector('[data-testid="messages-compose-body"]')?.innerText);
+      if (title || body) text += `\n\n**Draft: ${title}**\n\n${body}`;
+    }
+    if (text) messages.push({ role: bubble.dataset.side === 'agent' ? 'assistant' : 'user', text, day });
+  }
+  const status = clean([...document.querySelectorAll('[data-testid="messages-thread"] [role="status"]')].map((e) => e.innerText).filter(Boolean).at(-1));
+  return { messages, busy: messages.at(-1)?.role === 'user', status: status || null };
+}
+
+// Runs in Duet: types into "Message Claude Duet", presses Send, and only says ok once the box has emptied.
+async function pageSendDuet(text) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let box;
+  for (let i = 0; i < 60 && !box; i++) {
+    box = document.querySelector('[data-testid="messages-composer"] textarea');
+    if (!box) await sleep(250);
+  }
+  if (!box) return { error: 'Couldn’t find Duet’s message box.' };
+  box.focus();
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(box, text);
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  await sleep(350);
+  if (!box.value.trim()) return { error: 'Couldn’t type into Duet’s message box.' };
+  let btn;
+  for (let i = 0; i < 24 && !btn; i++) {
+    btn = document.querySelector('[data-testid="messages-composer"] button[aria-label="Send"]');
+    if (!btn || btn.disabled) { btn = null; await sleep(250); }
+  }
+  if (!btn) return { error: 'Duet’s Send button didn’t turn on.' };
+  btn.click();
+  for (let i = 0; i < 40; i++) {
+    await sleep(250);
+    if (!box.value.trim() || !box.isConnected) return { ok: true };
+  }
+  return { error: 'Duet didn’t take the message. It’s still in the box on the computer.' };
+}
+
+let duetCopy = null;
+async function readDuet() {
+  try {
+    const r = await run(view(DUET_KEY, DUET_URL), pageReadDuet);
+    if (r.error) throw new Error(r.error === 'signed-out' ? 'Sign in to Claude in Monodesk on your computer.' : r.error);
+    duetCopy = { key: DUET_KEY, kind: 'duet', id: 'main', title: 'Claude Duet', updated: Date.now(), busy: r.busy, status: r.busy ? r.status : null, ask: null, url: DUET_URL, messages: r.messages.slice(-KEEP_MESSAGES) };
+  } catch (e) {
+    if (!duetCopy) throw e;
+  }
+  return duetCopy;
+}
+async function replyDuet(text) {
+  const r = await run(view(DUET_KEY, DUET_URL), pageSendDuet, text).catch((e) => ({ error: e.message }));
+  log(`reply duet · ${text.length} chars · ${r.error || 'sent'}`);
+  if (r.error) throw new Error(r.error);
+  return r;
+}
+
 /* ---------- thread state ---------- */
 // threads: the top few, with messages. history: every recent thread, titles only, for the phone's list.
 const S = { threads: [], history: [], org: null, error: null, lastAsk: 0, refreshing: null };
@@ -527,6 +609,7 @@ function schedule() {
 }
 
 async function reply(key, text) {
+  if (key === DUET_KEY) return replyDuet(text);
   const [kind, id] = key.split(':');
   if (!['cowork', 'code'].includes(kind) || !id) throw new Error('Unknown thread');
   const had = views.get(key), fresh = !had || had.isDestroyed();
@@ -949,6 +1032,7 @@ async function handle(req, res) {
     const one = /^\/api\/threads\/([^/]+)$/.exec(url.pathname);
     if (req.method === 'GET' && one) {
       const key = decodeURIComponent(one[1]);
+      if (key === DUET_KEY) return send(res, 200, await readDuet());
       const [kind, id] = key.split(':');
       if (!['cowork', 'code'].includes(kind) || !id) return send(res, 404, { error: 'Unknown thread' });
       const h = S.history.find((x) => x.key === key);
@@ -958,6 +1042,7 @@ async function handle(req, res) {
     const warm = /^\/api\/threads\/([^/]+)\/warm$/.exec(url.pathname);
     if (req.method === 'POST' && warm) {
       const key = decodeURIComponent(warm[1]);
+      if (key === DUET_KEY) { view(DUET_KEY, DUET_URL); return send(res, 200, { ok: true }); }
       const [kind, id] = key.split(':');
       if (!['cowork', 'code'].includes(kind) || !id) return send(res, 404, { error: 'Unknown thread' });
       const had = views.get(key);
